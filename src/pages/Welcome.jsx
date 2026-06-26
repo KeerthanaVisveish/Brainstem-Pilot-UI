@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Route, Code2, ChevronRight, Zap, Settings2, Play, Cpu, FolderOpen, FolderCheck } from 'lucide-react';
+import { Route, Code2, ChevronRight, Zap, Settings2, Play, Cpu, FolderOpen, FolderCheck, BookOpen } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { getProjectDir, setProjectDir, hasProjectDir, initializeProjectFolder } from '../lib/projectFolder';
 
@@ -91,11 +91,17 @@ export default function Welcome() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 relative overflow-hidden">
-      {/* Settings button top-left */}
-      <Link to="/settings" className="absolute top-4 left-4 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-all z-10">
-        <Settings2 className="w-3.5 h-3.5" />
-        Settings
-      </Link>
+      {/* Settings + Documentation top-left */}
+      <div className="absolute top-4 left-4 flex items-center gap-2 z-10">
+        <Link to="/settings" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-all">
+          <Settings2 className="w-3.5 h-3.5" />
+          Settings
+        </Link>
+        <Link to="/docs" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-all">
+          <BookOpen className="w-3.5 h-3.5" />
+          Documentation
+        </Link>
+      </div>
       {/* Open project top-right */}
       <button
         onClick={openProject}

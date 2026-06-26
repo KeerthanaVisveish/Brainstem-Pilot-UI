@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { readEntity, createEntity, updateEntity, deleteEntity } from '../lib/dataService';
-import { Plus, ChevronLeft, Trash2, Layers, Play, Pencil, Check, X, MonitorPlay } from 'lucide-react';
+import { readEntity, createEntity, updateEntity, deleteEntity, safeNameFromString } from '../lib/dataService';
+import { Plus, ChevronLeft, Trash2, Layers, Play, Pencil, Check, X, MonitorPlay, Copy } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 function safeId(name) {
-  return (name ?? '').trim().replace(/[^a-zA-Z0-9_\-]/g, '_');
+  return safeNameFromString(name);
 }
 
 function RenameInline({ name, onSave, onCancel }) {
@@ -52,10 +52,9 @@ export default function StringBuilderList() {
     const name = `Auto ${skeletons.length + 1}`;
     try {
       const created = await createEntity('SkeletonAuto', { name, commands: [] });
-      const recordId = created?._id ?? created?.id ?? `gen-${Date.now()}`;
+      const recordId = created?.id ?? safeId(name);
       navigate(`/skeleton-builder/${recordId}`);
     } catch (err) {
-      // Emergency generation backup routing if the database provider pauses
       navigate(`/skeleton-builder/gen-${Date.now()}`);
     }
   };
@@ -74,14 +73,47 @@ export default function StringBuilderList() {
 
   const renameSkeleton = async (id, name) => {
     await updateEntity('SkeletonAuto', id, { name });
-    setSkeletons(prev => prev.map(s => (s._id ?? s.id) === id ? { ...s, name } : s));
+    const newId = safeId(name);
+    setSkeletons(prev => prev.map(s => (s._id ?? s.id) === id ? { ...s, name, id: newId } : s));
     setRenamingId(null);
   };
 
   const renameChild = async (id, name) => {
     await updateEntity('ChildAuto', id, { name });
-    setChildren(prev => prev.map(c => (c._id ?? c.id) === id ? { ...c, name } : c));
+    const newId = safeId(name);
+    setChildren(prev => prev.map(c => (c._id ?? c.id) === id ? { ...c, name, id: newId } : c));
     setRenamingId(null);
+  };
+
+  const uniqueCopyName = (baseName, list) => {
+    let uniqueName = baseName;
+    let counter = 1;
+    while (list.some(item => safeId(item.name) === safeId(uniqueName))) {
+      uniqueName = `${baseName}_${counter}`;
+      counter++;
+    }
+    return uniqueName;
+  };
+
+  const duplicateSkeleton = async (e, sk) => {
+    e.stopPropagation();
+    const name = uniqueCopyName(`${sk.name}_Copy`, skeletons);
+    const created = await createEntity('SkeletonAuto', {
+      name,
+      commands: JSON.parse(JSON.stringify(sk.commands || [])),
+    });
+    setSkeletons(prev => [created, ...prev]);
+  };
+
+  const duplicateChild = async (e, ch) => {
+    e.stopPropagation();
+    const name = uniqueCopyName(`${ch.name}_Copy`, children);
+    const created = await createEntity('ChildAuto', {
+      name,
+      skeletonId: ch.skeletonId,
+      commandOverrides: JSON.parse(JSON.stringify(ch.commandOverrides || [])),
+    });
+    setChildren(prev => [created, ...prev]);
   };
 
   const skeletonName = (id) => skeletons.find(s => (s._id ?? s.id) === id)?.name ?? 'Unknown Template';
@@ -168,6 +200,9 @@ export default function StringBuilderList() {
                     </div>
                     {renamingId !== sId && (
                       <div className="px-4 pb-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                        <button onClick={e => duplicateSkeleton(e, sk)} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-all" title="Duplicate">
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
                         <button onClick={e => { e.stopPropagation(); setRenamingId(sId); }} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-all">
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
@@ -217,6 +252,9 @@ export default function StringBuilderList() {
                     </div>
                     {renamingId !== cId && (
                       <div className="px-4 pb-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                        <button onClick={e => duplicateChild(e, ch)} className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-all" title="Duplicate">
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
                         <button onClick={e => { e.stopPropagation(); navigate(`/auto-simulator/${cId}`); }} className="p-1.5 rounded-md text-green-400/70 hover:text-green-400 hover:bg-green-500/10 transition-all" title="Simulate">
                           <MonitorPlay className="w-3.5 h-3.5" />
                         </button>

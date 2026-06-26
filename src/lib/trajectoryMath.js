@@ -3,6 +3,27 @@ export const FIELD_WIDTH_M = 16.541;
 export const FIELD_HEIGHT_M = 8.211;
 
 /**
+ * Shift a path so its first waypoint matches a chained start pose (position + heading).
+ * Used when a path follows another in an auto sequence — the stored first waypoint is ignored.
+ */
+export function chainPathToPose(waypoints, startPose) {
+  if (!waypoints?.length || !startPose) return waypoints;
+  const wp0 = waypoints[0];
+  const dx = startPose.x - wp0.x;
+  const dy = startPose.y - wp0.y;
+  const startRotation = startPose.rotation ?? startPose.heading ?? wp0.rotation ?? 0;
+
+  return waypoints.map((wp, i) => ({
+    ...wp,
+    x: wp.x + dx,
+    y: wp.y + dy,
+    rotation: i === 0 ? startRotation : (wp.rotation ?? 0),
+    prevControl: wp.prevControl ? { x: wp.prevControl.x + dx, y: wp.prevControl.y + dy } : null,
+    nextControl: wp.nextControl ? { x: wp.nextControl.x + dx, y: wp.nextControl.y + dy } : null,
+  }));
+}
+
+/**
  * Transforms an array of waypoints into a continuous, time-sampled trajectory map.
  * @param {Array} waypoints List of waypoint objects from the UI canvas.
  * @param {Object} constraints Performance limitations { maxVel, maxAccel }.
@@ -216,6 +237,31 @@ export function generateTrajectory(waypoints, constraints, rotationTargets = [],
   };
 }
 
+export function mirrorWaypointForFieldSide(wp) {
+  if (!wp) return null;
+  const mirroredY = FIELD_HEIGHT_M - wp.y;
+  const mirroredRotation = normAngle(-(wp.rotation ?? 0));
+
+  const mirroredPrev = wp.prevControl ? {
+    x: wp.prevControl.x,
+    y: FIELD_HEIGHT_M - wp.prevControl.y,
+  } : null;
+
+  const mirroredNext = wp.nextControl ? {
+    x: wp.nextControl.x,
+    y: FIELD_HEIGHT_M - wp.nextControl.y,
+  } : null;
+
+  return {
+    ...wp,
+    x: wp.x,
+    y: mirroredY,
+    rotation: mirroredRotation,
+    prevControl: mirroredPrev,
+    nextControl: mirroredNext,
+  };
+}
+
 export function mirrorWaypointForRed(wp) {
   if (!wp) return null;
   const mirroredX = FIELD_WIDTH_M - wp.x;
@@ -313,6 +359,41 @@ function sampleLookAheadHeading(startHeading, rotationTargets, globalProgress) {
 
 function trueMod(n, m) {
   return ((n % m) + m) % m;
+}
+
+export function flipStartSide(side) {
+  return side === 'L' ? 'R' : 'L';
+}
+
+export function mirrorPathData({ waypoints = [], rotationTargets = [], subsystemTriggers = [] }) {
+  return {
+    waypoints: waypoints.map(mirrorWaypointForFieldSide),
+    rotationTargets: rotationTargets.map(rot => ({
+      ...rot,
+      rotation: normAngle(-(rot.rotation ?? 0)),
+    })),
+    subsystemTriggers: subsystemTriggers.map(t => ({ ...t })),
+  };
+}
+
+/** Mirror trajectory for opposite field side (reflect across horizontal field midline). */
+export function mirrorTrajectoryFieldSide(traj) {
+  if (!traj?.states) return traj;
+  return {
+    ...traj,
+    states: traj.states.map(s => ({
+      ...s,
+      y: FIELD_HEIGHT_M - s.y,
+      heading: normAngle(-(s.heading ?? 0)),
+      pathHeading: normAngle(-(s.pathHeading ?? s.heading ?? 0)),
+      rotation: s.rotation != null ? normAngle(-s.rotation) : undefined,
+    })),
+  };
+}
+
+/** @deprecated use mirrorTrajectoryFieldSide */
+export function mirrorTrajectoryX(traj) {
+  return mirrorTrajectoryFieldSide(traj);
 }
 
 function normAngle(deg) {

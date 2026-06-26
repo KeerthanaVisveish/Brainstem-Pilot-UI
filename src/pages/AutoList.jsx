@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, ChevronLeft, Trash2, Route, Settings2, Pencil, Check, X, Copy } from 'lucide-react'; // Added Copy icon
-import { readEntity, createEntity, updateEntity, deleteEntity } from '../lib/dataService';
+import { readEntity, createEntity, updateEntity, deleteEntity, safeNameFromString } from '../lib/dataService';
+import { mirrorPathData, flipStartSide } from '../lib/trajectoryMath';
 import { motion } from 'framer-motion';
 import { FIELD_WIDTH_M, FIELD_HEIGHT_M } from '../lib/trajectoryMath';
 
@@ -28,7 +29,20 @@ import { FIELD_IMAGE_PADDING_X, FIELD_IMAGE_PADDING_Y } from '../lib/fieldCoordi
 const FIELD_IMAGE_URL = 'https://media.base44.com/images/public/6a033bb4c2b77149a04836f8/b5bb0f72c_image.png';
 
 function safeId(name) {
-  return (name ?? '').trim().replace(/[^a-zA-Z0-9_\-]/g, '_');
+  return safeNameFromString(name);
+}
+
+function ChoiceModal({ open, title, description, onClose, children }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" onClick={onClose}>
+      <div className="bg-card border border-border rounded-xl p-6 max-w-md w-full shadow-xl" onClick={e => e.stopPropagation()}>
+        <h2 className="text-lg font-semibold text-foreground mb-1">{title}</h2>
+        {description && <p className="text-sm text-muted-foreground mb-4">{description}</p>}
+        {children}
+      </div>
+    </div>
+  );
 }
 
 function PathPreview({ waypoints }) {
@@ -124,6 +138,8 @@ export default function AutoList() {
   const [autos, setAutos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [renamingId, setRenamingId] = useState(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [duplicateTarget, setDuplicateTarget] = useState(null);
 
   useEffect(() => {
     readEntity('SavedAuto').then(data => {
@@ -133,14 +149,46 @@ export default function AutoList() {
     });
   }, []);
 
-  const createNew = async () => {
+  const createNew = async (side) => {
+    setShowCreateModal(false);
     const name = `Path ${autos.length + 1}`;
     const created = await createEntity('SavedAuto', {
       name,
       waypoints: [],
-      constraints: { maxVel: 3.0, maxAccel: 2.5 },
+      constraints: {},
+      startSide: side,
     });
     navigate(`/auto-builder/${safeId(created.name)}`);
+  };
+
+  const uniqueCopyName = (baseName) => {
+    let uniqueName = baseName;
+    let counter = 1;
+    while (autos.some(a => safeId(a.name) === safeId(uniqueName))) {
+      uniqueName = `${baseName}_${counter}`;
+      counter++;
+    }
+    return uniqueName;
+  };
+
+  const duplicateAuto = async (targetAuto, mirror) => {
+    setDuplicateTarget(null);
+    const uniqueName = uniqueCopyName(`${targetAuto.name}_Copy`);
+    const sourceSide = targetAuto.startSide === 'L' ? 'L' : 'R';
+    let payload = {
+      name: uniqueName,
+      waypoints: JSON.parse(JSON.stringify(targetAuto.waypoints || [])),
+      constraints: JSON.parse(JSON.stringify(targetAuto.constraints || {})),
+      rotationTargets: JSON.parse(JSON.stringify(targetAuto.rotationTargets || [])),
+      subsystemTriggers: JSON.parse(JSON.stringify(targetAuto.subsystemTriggers || [])),
+      startSide: mirror ? flipStartSide(sourceSide) : sourceSide,
+    };
+    if (mirror) {
+      const mirrored = mirrorPathData(payload);
+      payload = { ...payload, ...mirrored };
+    }
+    const duplicatedObj = await createEntity('SavedAuto', payload);
+    setAutos(prev => [duplicatedObj, ...prev]);
   };
 
   const deleteAuto = async (e, id) => {
@@ -155,30 +203,10 @@ export default function AutoList() {
     setRenamingId(null);
   };
 
-  // --- NEW FEATURE: DUPLICATE PATH FEATURE HANDLER ---
-  const duplicateAuto = async (e, targetAuto) => {
+  // Duplicate path handler — opens choice modal
+  const promptDuplicate = (e, targetAuto) => {
     e.stopPropagation();
-    
-    // Generate a secure variant name based on uniqueness
-    let baseName = `${targetAuto.name}_Copy`;
-    let uniqueName = baseName;
-    let counter = 1;
-    
-    while (autos.some(a => safeId(a.name) === safeId(uniqueName))) {
-      uniqueName = `${baseName}_${counter}`;
-      counter++;
-    }
-
-    // Persist complete configuration structures via deep cloning parameters
-    const duplicatedObj = await createEntity('SavedAuto', {
-      name: uniqueName,
-      waypoints: JSON.parse(JSON.stringify(targetAuto.waypoints || [])),
-      constraints: JSON.parse(JSON.stringify(targetAuto.constraints || { maxVel: 3.0, maxAccel: 2.5 })),
-      markers: JSON.parse(JSON.stringify(targetAuto.markers || [])),
-      rotationTargets: JSON.parse(JSON.stringify(targetAuto.rotationTargets || []))
-    });
-
-    setAutos(prev => [duplicatedObj, ...prev]);
+    setDuplicateTarget(targetAuto);
   };
 
   return (
@@ -208,7 +236,7 @@ export default function AutoList() {
           <Settings2 className="w-4 h-4" />
           <span className="hidden sm:inline text-xs font-medium">Settings</span>
         </button>
-        <button onClick={createNew} className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/80 transition-all">
+        <button onClick={() => setShowCreateModal(true)} className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/80 transition-all">
           <Plus className="w-4 h-4" />
           New Path
         </button>
@@ -225,7 +253,7 @@ export default function AutoList() {
               <Route className="w-8 h-8 text-primary/60" />
             </div>
             <p className="text-muted-foreground text-sm">No paths yet. Create your first one!</p>
-            <button onClick={createNew} className="flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/80 transition-all">
+            <button onClick={() => setShowCreateModal(true)} className="flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/80 transition-all">
               <Plus className="w-4 h-4" /> Create Path
             </button>
           </motion.div>
@@ -260,7 +288,7 @@ export default function AutoList() {
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
                       {/* Duplicate Action Button */}
                       <button
-                        onClick={e => duplicateAuto(e, auto)}
+                        onClick={e => promptDuplicate(e, auto)}
                         title="Duplicate Path"
                         className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
                       >
@@ -286,6 +314,44 @@ export default function AutoList() {
           </div>
         )}
       </div>
+
+      <ChoiceModal
+        open={showCreateModal}
+        title="New Path — Starting Side"
+        description="Which side of the field does this path start on? You can change this later in the path editor."
+        onClose={() => setShowCreateModal(false)}
+      >
+        <div className="flex gap-3">
+          <button onClick={() => createNew('L')} className="flex-1 py-3 rounded-lg bg-secondary hover:bg-secondary/80 text-foreground font-bold text-lg border border-border transition-all">
+            Left (L)
+          </button>
+          <button onClick={() => createNew('R')} className="flex-1 py-3 rounded-lg bg-primary text-primary-foreground font-bold text-lg hover:bg-primary/80 transition-all">
+            Right (R)
+          </button>
+        </div>
+      </ChoiceModal>
+
+      <ChoiceModal
+        open={!!duplicateTarget}
+        title="Duplicate Path"
+        description={`How should "${duplicateTarget?.name}" be duplicated?`}
+        onClose={() => setDuplicateTarget(null)}
+      >
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={() => duplicateAuto(duplicateTarget, false)}
+            className="w-full py-2.5 rounded-lg bg-secondary hover:bg-secondary/80 text-foreground text-sm font-semibold border border-border transition-all"
+          >
+            Same Side
+          </button>
+          <button
+            onClick={() => duplicateAuto(duplicateTarget, true)}
+            className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/80 transition-all"
+          >
+            Opposite Side (mirrored)
+          </button>
+        </div>
+      </ChoiceModal>
     </div>
   );
 }

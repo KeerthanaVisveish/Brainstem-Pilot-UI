@@ -18,6 +18,7 @@ export default function AutoBuilder() {
   const [selectedIndex, setSelectedIndex] = useState(null);
   const [tool, setTool] = useState('select');
   const [constraints, setConstraints] = useState({ maxVel: 3.0, maxAccel: 2.5 });
+  const customizedConstraintsRef = useRef({ maxVel: false, maxAccel: false });
   const [showVelocity, setShowVelocity] = useState(false);
   const [robotSettings, setRobotSettings] = useState(null);
   const [simProgress, setSimProgress] = useState(0);
@@ -26,6 +27,7 @@ export default function AutoBuilder() {
   const [pathName, setPathName] = useState('Auto 1');
   const [subsystemTriggers, setSubsystemTriggers] = useState([]);
   const [rotationTargets, setRotationTargets] = useState([]);
+  const [startSide, setStartSide] = useState('R');
   const [loaded, setLoaded] = useState(false);
   const [subsystemConfig, setSubsystemConfig] = useState([]);
   const savedNameRef = useRef(null);
@@ -35,8 +37,8 @@ export default function AutoBuilder() {
   const canvasContainerRef = useRef(null);
 
   // Unified State Tracker for deep async synchronization
-  const stateRef = useRef({ waypoints, constraints, pathName, subsystemTriggers, rotationTargets });
-  stateRef.current = { waypoints, constraints, pathName, subsystemTriggers, rotationTargets };
+  const stateRef = useRef({ waypoints, constraints, pathName, subsystemTriggers, rotationTargets, startSide });
+  stateRef.current = { waypoints, constraints, pathName, subsystemTriggers, rotationTargets, startSide };
 
   const getBlueViewPan = useCallback(() => {
     const el = canvasContainerRef.current;
@@ -101,8 +103,8 @@ export default function AutoBuilder() {
         const rsettings = rs[0];
         setRobotSettings(rsettings);
         setConstraints(prev => ({
-          maxVel: rsettings.maxVel ?? prev.maxVel,
-          maxAccel: rsettings.maxAccel ?? prev.maxAccel,
+          maxVel: customizedConstraintsRef.current.maxVel ? prev.maxVel : (rsettings.maxVel ?? prev.maxVel),
+          maxAccel: customizedConstraintsRef.current.maxAccel ? prev.maxAccel : (rsettings.maxAccel ?? prev.maxAccel),
         }));
       }
       if (sc.length > 0) setSubsystemConfig(sc[0].subsystems ?? []);
@@ -118,30 +120,47 @@ export default function AutoBuilder() {
       if (!auto) return;
       
       const wps = auto.waypoints || [];
-      const c = auto.constraints || stateRef.current.constraints;
+      const savedConstraints = auto.constraints || {};
       const rots = auto.rotationTargets ?? [];
       const trigs = auto.subsystemTriggers ?? [];
 
-      setPathName(auto.name || 'Path 1');
-      savedNameRef.current = auto.name || 'Path 1';
-      setConstraints(c);
-      setWaypoints(wps);
-      setSubsystemTriggers(trigs);
-      setRotationTargets(rots);
-      
-      // Update our source-of-truth reference before rendering calculations run
-      stateRef.current = { waypoints: wps, constraints: c, pathName: auto.name || 'Path 1', subsystemTriggers: trigs, rotationTargets: rots };
+      readEntity('RobotSettings').then(rList => {
+        const rs = Array.isArray(rList) && rList.length > 0 ? rList[0] : null;
+        const defaultVel = rs?.maxVel ?? 3.0;
+        const defaultAccel = rs?.maxAccel ?? 2.5;
+        customizedConstraintsRef.current = {
+          maxVel: savedConstraints.maxVel != null && savedConstraints.maxVel !== defaultVel,
+          maxAccel: savedConstraints.maxAccel != null && savedConstraints.maxAccel !== defaultAccel,
+        };
+        const c = {
+          maxVel: savedConstraints.maxVel ?? defaultVel,
+          maxAccel: savedConstraints.maxAccel ?? defaultAccel,
+        };
 
-      if (wps.length >= 2) {
-        setTrajectory(generateTrajectory(wps, c, rots));
-      }
-      setLoaded(true);
+        setPathName(auto.name || 'Path 1');
+        savedNameRef.current = auto.name || 'Path 1';
+        setConstraints(c);
+        setWaypoints(wps);
+        setSubsystemTriggers(trigs);
+        setRotationTargets(rots);
+        setStartSide(auto.startSide === 'L' ? 'L' : 'R');
+        
+        stateRef.current = { waypoints: wps, constraints: c, pathName: auto.name || 'Path 1', subsystemTriggers: trigs, rotationTargets: rots, startSide: auto.startSide === 'L' ? 'L' : 'R' };
+
+        if (wps.length >= 2) {
+          setTrajectory(generateTrajectory(wps, c, rots));
+        }
+        setLoaded(true);
+      });
     });
   }, [id, recomputeTrajectory]);
 
   const save = useCallback(async (overrides = {}) => {
-    const { waypoints: wps, constraints: c, pathName: name, subsystemTriggers: trigs, rotationTargets: rots } = { ...stateRef.current, ...overrides };
-    const pathData = { id, name, waypoints: wps, constraints: c, subsystemTriggers: trigs, rotationTargets: rots };
+    const { waypoints: wps, constraints: c, pathName: name, subsystemTriggers: trigs, rotationTargets: rots, startSide: side } = { ...stateRef.current, ...overrides };
+    const savedConstraints = {};
+    if (customizedConstraintsRef.current.maxVel) savedConstraints.maxVel = c.maxVel;
+    if (customizedConstraintsRef.current.maxAccel) savedConstraints.maxAccel = c.maxAccel;
+    const pathData = { id, name, waypoints: wps, constraints: savedConstraints, subsystemTriggers: trigs, rotationTargets: rots, startSide: side ?? startSide };
     const previousName = savedNameRef.current;
     await updateEntity('SavedAuto', id, pathData);
     await savePathToProject(pathData, previousName);
@@ -178,6 +197,13 @@ export default function AutoBuilder() {
     if (!skipRecompute) recomputeTrajectory(stateRef.current.waypoints, stateRef.current.constraints, seeded);
     scheduleSave({ rotationTargets: seeded });
   };
+
+  const handleStartSideChange = useCallback((newSide) => {
+    if (newSide === startSide) return;
+    setStartSide(newSide);
+    stateRef.current.startSide = newSide;
+    scheduleSave({ startSide: newSide });
+  }, [startSide, scheduleSave]);
 
   const handleBack = async () => {
     clearTimeout(saveTimer.current);
@@ -284,6 +310,7 @@ export default function AutoBuilder() {
         rotation: fmt4(t.rotation ?? 0),
         arcLengthM: fmt4(t.arcLengthM ?? 0),
       })),
+      startSide,
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -366,6 +393,8 @@ export default function AutoBuilder() {
         onClear={clearAll}
         waypointCount={waypoints.length}
         onBack={handleBack}
+        startSide={startSide}
+        onStartSideChange={handleStartSideChange}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -419,6 +448,8 @@ export default function AutoBuilder() {
           setConstraints={(updater) => {
             setConstraints(prev => {
               const next = typeof updater === 'function' ? updater(prev) : updater;
+              if (next.maxVel !== prev.maxVel) customizedConstraintsRef.current.maxVel = true;
+              if (next.maxAccel !== prev.maxAccel) customizedConstraintsRef.current.maxAccel = true;
               stateRef.current.constraints = next;
               scheduleSave({ constraints: next });
               return next;

@@ -14,6 +14,7 @@ import SkeletonBuilder from './pages/SkeletonBuilder';
 import ChildBuilder from './pages/ChildBuilder';
 import SubsystemConfigPage from './pages/SubsystemConfigPage';
 import AutoSimulator from './pages/AutoSimulator';
+import Documentation from './pages/Documentation';
 // Add page imports here
 
 const AuthenticatedApp = () => {
@@ -52,6 +53,7 @@ const AuthenticatedApp = () => {
       <Route path="/subsystem-config" element={<SubsystemConfigPage />} />
       <Route path="/auto-simulator" element={<AutoSimulator />} />
       <Route path="/auto-simulator/:id" element={<AutoSimulator />} />
+      <Route path="/docs" element={<Documentation />} />
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );

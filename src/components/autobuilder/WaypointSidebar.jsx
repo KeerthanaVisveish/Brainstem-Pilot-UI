@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Trash2, Navigation, MapPin, ChevronDown, ChevronUp, Zap, Plus, RotateCcw, Sparkles, PlusCircle } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
+import { readEntity } from '@/lib/dataService';
 
 // Angle input that allows typing a negative sign without stomping the value
 function AngleInput({ value, onChange }) {
@@ -68,8 +68,8 @@ const OPTIONAL_PARAMS = [
   { key: 'passPosition', label: 'Pass Position', unit: '', default: false, type: 'bool' }
 ];
 
-function OptionalParamsSection({ wp, onUpdate }) {
-  const [open, setOpen] = useState(false);
+export function OptionalParamsSection({ wp, onUpdate, initialOpen = false }) {
+  const [open, setOpen] = useState(initialOpen);
   const params = wp.params ?? {};
 
   const toggleParam = (key, defaultVal) => {
@@ -122,8 +122,8 @@ function OptionalParamsSection({ wp, onUpdate }) {
   );
 }
 
-function RotationTargetsSection({ targets, onUpdate, onUpdateProgressOnly, totalLength }) {
-  const [open, setOpen] = useState(false);
+function RotationTargetsSection({ targets, onUpdate, onUpdateProgressOnly, totalLength, initialOpen = false }) {
+  const [open, setOpen] = useState(initialOpen);
 
   const addTarget = () => {
     onUpdate([...(targets ?? []), { id: `rot-${Date.now()}`, progress: 0, rotation: 0 }]);
@@ -164,8 +164,8 @@ function RotationTargetsSection({ targets, onUpdate, onUpdateProgressOnly, total
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-[10px] text-muted-foreground shrink-0">Rot</label>
-                <input type="range" min={-180} max={180} step={1} value={tgt.rotation ?? 0}
-                  onChange={(e) => updateTarget(i, { rotation: parseFloat(e.target.value) })}
+                <input type="range" min={-180} max={180} step={1} value={-(tgt.rotation ?? 0)}
+                  onChange={(e) => updateTarget(i, { rotation: -parseFloat(e.target.value) })}
                   onMouseDown={(e) => e.stopPropagation()}
                   className="flex-1 accent-primary min-w-0" />
                 <AngleInput value={tgt.rotation ?? 0} onChange={(v) => updateTarget(i, { rotation: v })} />
@@ -183,13 +183,14 @@ function RotationTargetsSection({ targets, onUpdate, onUpdateProgressOnly, total
   );
 }
 
-function SubsystemTriggersSection({ triggers, onUpdate, totalLength }) {
-  const [open, setOpen] = useState(false);
+function SubsystemTriggersSection({ triggers, onUpdate, totalLength, initialOpen = false }) {
+  const [open, setOpen] = useState(initialOpen);
   const [subsystems, setSubsystems] = useState([]);
 
   useEffect(() => {
-    base44.entities.SubsystemConfig.list().then((list) => {
-      if (list[0]) setSubsystems(list[0].subsystems ?? []);
+    readEntity('SubsystemConfig').then((list) => {
+      const configs = Array.isArray(list) ? list : [];
+      if (configs[0]) setSubsystems(configs[0].subsystems ?? []);
     });
   }, []);
 
@@ -263,7 +264,10 @@ export default function WaypointSidebar({
   waypoints, selectedIndex, onSelect, onUpdate, onDelete, onInsertAfter,
   constraints, setConstraints, trajectory,
   subsystemTriggers, onUpdateTriggers,
-  rotationTargets, onUpdateRotationTargets
+  rotationTargets, onUpdateRotationTargets,
+  rotationTargetsInitialOpen = false,
+  subsystemTriggersInitialOpen = false,
+  optionalParamsInitialOpen = false,
 }) {
   const selected = selectedIndex !== null ? waypoints[selectedIndex] : null;
   const [sidebarWidth, setSidebarWidth] = React.useState(256);
@@ -336,15 +340,17 @@ export default function WaypointSidebar({
                 <div className="flex flex-col gap-1">
                   <label className="text-xs text-muted-foreground font-medium">Robot Rotation</label>
                   <div className="flex items-center gap-2">
-                    <input type="range" min={-180} max={180} step={1} value={selected.rotation ?? 0}
-                      onChange={(e) => onUpdate(selectedIndex, { rotation: parseFloat(e.target.value) })}
+                    <input type="range" min={-180} max={180} step={1} value={-(selected.rotation ?? 0)}
+                      onChange={(e) => onUpdate(selectedIndex, { rotation: -parseFloat(e.target.value) })}
                       className="flex-1 accent-primary" />
                     <AngleInput value={selected.rotation ?? 0} onChange={(v) => onUpdate(selectedIndex, { rotation: v })} />
                     <span className="text-xs text-muted-foreground">°</span>
                   </div>
                 </div>
               )}
-              {selectedIndex !== 0 && <OptionalParamsSection wp={selected} onUpdate={(updates) => onUpdate(selectedIndex, updates)} />}
+              {selectedIndex !== 0 && selectedIndex !== waypoints.length - 1 && (
+                <OptionalParamsSection wp={selected} onUpdate={(updates) => onUpdate(selectedIndex, updates)} initialOpen={optionalParamsInitialOpen} />
+              )}
             </div> :
             <p className="text-xs text-muted-foreground">
               Click a waypoint or use the <span className="text-primary">Add</span> tool to place one.
@@ -360,6 +366,7 @@ export default function WaypointSidebar({
               onUpdate={onUpdateRotationTargets}
               onUpdateProgressOnly={(rots) => onUpdateRotationTargets(rots, true)}
               totalLength={trajectory?.totalLength ?? 1}
+              initialOpen={rotationTargetsInitialOpen}
             />
           </div>
         }
@@ -371,6 +378,7 @@ export default function WaypointSidebar({
               triggers={subsystemTriggers ?? []} 
               onUpdate={onUpdateTriggers} 
               totalLength={trajectory?.totalLength ?? 0}
+              initialOpen={subsystemTriggersInitialOpen}
             />
           </div>
         }

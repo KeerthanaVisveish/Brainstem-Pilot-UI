@@ -3,6 +3,11 @@
 
 let _dirHandle = null;
 
+/** File/id slug: spaces become underscores; display names keep spaces. */
+export function safeNameFromString(str) {
+  return (str ?? '').trim().replace(/\s+/g, '_');
+}
+
 export function getProjectDir() { return _dirHandle; }
 export function setProjectDir(handle) { _dirHandle = handle; }
 export function hasProjectDir() { return _dirHandle !== null; }
@@ -20,9 +25,9 @@ export async function savePathToProject(pathObj, previousName) {
   // Guard: name must exist and be non-empty, otherwise skip to avoid creating path.path.json
   if (!pathObj.name || pathObj.name.trim() === '') return;
   const dir = await getOrCreateSubdir('paths');
-  const safeName = pathObj.name.trim().replace(/[^a-zA-Z0-9_\-]/g, '_');
+  const safeName = safeNameFromString(pathObj.name);
   if (previousName && previousName !== pathObj.name) {
-    const oldSafe = previousName.trim().replace(/[^a-zA-Z0-9_\-]/g, '_');
+    const oldSafe = safeNameFromString(previousName);
     await deleteFileIfExists(dir, `${oldSafe}.path.json`);
   }
 
@@ -50,13 +55,45 @@ export async function savePathToProject(pathObj, previousName) {
   await writable.close();
 }
 
+async function getSubdirIfExists(name) {
+  if (!_dirHandle) return null;
+  try {
+    return await _dirHandle.getDirectoryHandle(name, { create: false });
+  } catch {
+    return null;
+  }
+}
+
 export async function deletePathFromProject(name) {
   if (!_dirHandle) return;
   try {
-    const dir = await getOrCreateSubdir('paths');
-    const safeName = (name ?? '').trim().replace(/[^a-zA-Z0-9_\-]/g, '_');
+    const dir = await getSubdirIfExists('paths');
+    if (!dir) return;
+    const safeName = safeNameFromString(name);
     if (!safeName) return;
     await deleteFileIfExists(dir, `${safeName}.path.json`);
+  } catch (_) { /* ignore */ }
+}
+
+export async function deleteSkeletonFromProject(name) {
+  if (!_dirHandle) return;
+  try {
+    const dir = await getSubdirIfExists('skeletons');
+    if (!dir) return;
+    const safeName = safeNameFromString(name);
+    if (!safeName) return;
+    await deleteFileIfExists(dir, `${safeName}.skeleton.json`);
+  } catch (_) { /* ignore */ }
+}
+
+export async function deleteVariantFromProject(name) {
+  if (!_dirHandle) return;
+  try {
+    const dir = await getSubdirIfExists('variants');
+    if (!dir) return;
+    const safeName = safeNameFromString(name);
+    if (!safeName) return;
+    await deleteFileIfExists(dir, `${safeName}.variant.json`);
   } catch (_) { /* ignore */ }
 }
 
@@ -64,9 +101,9 @@ export async function saveSkeletonToProject(skeletonObj, previousName) {
   if (!_dirHandle) return;
   if (!skeletonObj.name || skeletonObj.name.trim() === '') return;
   const dir = await getOrCreateSubdir('skeletons');
-  const safeName = skeletonObj.name.trim().replace(/[^a-zA-Z0-9_\-]/g, '_');
+  const safeName = safeNameFromString(skeletonObj.name);
   if (previousName && previousName !== skeletonObj.name) {
-    const oldSafe = previousName.trim().replace(/[^a-zA-Z0-9_\-]/g, '_');
+    const oldSafe = safeNameFromString(previousName);
     await deleteFileIfExists(dir, `${oldSafe}.skeleton.json`);
   }
   const fh = await dir.getFileHandle(`${safeName}.skeleton.json`, { create: true });
@@ -79,9 +116,9 @@ export async function saveVariantToProject(variantObj, previousName) {
   if (!_dirHandle) return;
   if (!variantObj.name || variantObj.name.trim() === '') return;
   const dir = await getOrCreateSubdir('variants');
-  const safeName = variantObj.name.trim().replace(/[^a-zA-Z0-9_\-]/g, '_');
+  const safeName = safeNameFromString(variantObj.name);
   if (previousName && previousName !== variantObj.name) {
-    const oldSafe = previousName.trim().replace(/[^a-zA-Z0-9_\-]/g, '_');
+    const oldSafe = safeNameFromString(previousName);
     await deleteFileIfExists(dir, `${oldSafe}.variant.json`);
   }
   const fh = await dir.getFileHandle(`${safeName}.variant.json`, { create: true });

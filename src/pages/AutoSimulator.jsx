@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { ChevronLeft, Play, Square, RotateCcw, Zap, Clock, GitBranch, ChevronDown } from 'lucide-react';
-import { generateTrajectory, FIELD_WIDTH_M, FIELD_HEIGHT_M, getPoseAtProgress } from '../lib/trajectoryMath';
+import { generateTrajectory, FIELD_WIDTH_M, FIELD_HEIGHT_M, getPoseAtProgress, mirrorTrajectoryFieldSide, chainPathToPose } from '../lib/trajectoryMath';
 import { FIELD_IMAGE_PADDING_X, FIELD_IMAGE_PADDING_Y, metersToPixels } from '../lib/fieldCoordinates';
 import { readEntity } from '../lib/dataService';
 
@@ -259,6 +259,9 @@ function SimCanvas({ segments, robotSettings, simTime, visibleVisuals, robotSubs
 function buildSegments(sk, ch, paths, constraints) {
   const overrideMap = Object.fromEntries((ch.commandOverrides ?? []).map(o => [o.cmdId, o]));
   const segs = [];
+  let lastEndPose = null;
+  let pathCount = 0;
+
   for (const cmd of (sk?.commands ?? [])) {
     const override = overrideMap[cmd.id] ?? {};
     if (override.skip) continue;
@@ -266,8 +269,24 @@ function buildSegments(sk, ch, paths, constraints) {
       const pathId = override.pathId ?? cmd.pathId;
       const path = paths.find(p => p.id === pathId);
       if (path && (path.waypoints?.length ?? 0) >= 2) {
-        const traj = generateTrajectory(path.waypoints, constraints, path.rotationTargets ?? []);
-        segs.push({ cmdId: cmd.id, type: 'path', label: cmd.label || path.name, trajectory: traj, duration: traj.totalTime, subsystemTriggers: path.subsystemTriggers ?? [] });
+        let waypoints = path.waypoints;
+        if (pathCount > 0 && lastEndPose) {
+          waypoints = chainPathToPose(path.waypoints, lastEndPose);
+        }
+        const traj = generateTrajectory(waypoints, constraints, path.rotationTargets ?? []);
+        if (traj) {
+          lastEndPose = getPoseAtProgress(traj, 1);
+          pathCount += 1;
+          segs.push({
+            cmdId: cmd.id,
+            type: 'path',
+            label: cmd.label || path.name,
+            trajectory: traj,
+            duration: traj.totalTime,
+            subsystemTriggers: path.subsystemTriggers ?? [],
+            startSide: path.startSide === 'L' ? 'L' : 'R',
+          });
+        }
       }
     } else if (cmd.type === 'wait') {
       const dur = override.waitDuration ?? cmd.defaultWait ?? 0;
@@ -302,6 +321,7 @@ export default function AutoSimulator() {
   const [simTime, setSimTime] = useState(0);
   const [totalTime, setTotalTime] = useState(0);
   const [alliance, setAlliance] = useState('blue');
+  const [fieldSide, setFieldSide] = useState('R');
   const [rotationTargets, setRotationTargets] = useState([]);
   const animRef = useRef(null);
   const startRef = useRef(null);
@@ -374,6 +394,8 @@ export default function AutoSimulator() {
       };
       const segs = buildSegments(sk, ch, pathList, constraints);
       setSegments(segs);
+      const firstPath = segs.find(s => s.type === 'path');
+      setFieldSide(firstPath?.startSide ?? 'R');
       setTotalTime(segs.reduce((s, seg) => s + (seg.duration ?? 0), 0));
       setSubsystemConfigs(scListArray[0]?.subsystems ?? []);
       setRotationTargets((sk?.commands ?? []).flatMap(cmd => {
@@ -413,12 +435,16 @@ export default function AutoSimulator() {
   }
   const activeCmd = segments[activeSegIdx];
 
-  // FIXED: Implemented theta - 180 translation layout to yield (90 -> -90) and (107 -> -73)
   const displaySegments = segments.map(seg => {
     if (!seg.trajectory) return seg;
 
+    let traj = seg.trajectory;
+    if (fieldSide !== (seg.startSide ?? 'R')) {
+      traj = mirrorTrajectoryFieldSide(traj);
+    }
+
     if (alliance === 'blue') {
-      return seg;
+      return { ...seg, trajectory: traj };
     }
 
     const transformPointForRed = (p) => {
@@ -429,16 +455,16 @@ export default function AutoSimulator() {
         ...p,
         x: FIELD_WIDTH_M - p.x,
         y: FIELD_HEIGHT_M - p.y,
-        heading: wrapAngle(rawHeading - 180),     // Flip across vertical axis threshold
-        rotation: wrapAngle(rawRotation - 180),   // Flip across vertical axis threshold
+        heading: wrapAngle(rawHeading - 180),
+        rotation: wrapAngle(rawRotation - 180),
       };
     };
 
     return {
       ...seg,
       trajectory: {
-        ...seg.trajectory,
-        states: seg.trajectory.states.map(transformPointForRed),
+        ...traj,
+        states: traj.states.map(transformPointForRed),
       },
       subsystemTriggers: seg.subsystemTriggers,
     };
@@ -471,7 +497,7 @@ export default function AutoSimulator() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="h-screen bg-background flex flex-col overflow-hidden">
       {/* Top bar */}
       <div className="flex items-center gap-3 px-4 py-2.5 bg-card border-b border-border shrink-0 flex-wrap gap-y-1">
         <button onClick={() => navigate('/')} className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors">
@@ -491,6 +517,28 @@ export default function AutoSimulator() {
               {allChildren.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
             <ChevronDown className="w-3.5 h-3.5 text-muted-foreground absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+          </div>
+          <div className="flex gap-1 bg-secondary/50 rounded-lg p-1">
+            <button
+              onClick={() => setFieldSide('L')}
+              className={`px-2.5 py-0.5 rounded text-xs font-semibold transition-all ${
+                fieldSide === 'L'
+                  ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Left
+            </button>
+            <button
+              onClick={() => setFieldSide('R')}
+              className={`px-2.5 py-0.5 rounded text-xs font-semibold transition-all ${
+                fieldSide === 'R'
+                  ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Right
+            </button>
           </div>
           <div className="flex gap-1 bg-secondary/50 rounded-lg p-1">
             <button
@@ -518,10 +566,10 @@ export default function AutoSimulator() {
         <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/10 text-green-400 font-medium">Simulation</span>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Field canvas */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-1 relative">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* Field canvas + playback — fixed in view */}
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <div className="flex-1 min-h-0 relative overflow-hidden">
             <SimCanvas
               segments={displaySegments}
               robotSettings={robotSettings}
@@ -550,13 +598,13 @@ export default function AutoSimulator() {
           </div>
         </div>
 
-        {/* Side panel */}
-        <div className="w-60 bg-card border-l border-border overflow-y-auto shrink-0 flex flex-col">
-          <div className="p-3 border-b border-border">
+        {/* Side panel — scrollable command sequence only */}
+        <div className="w-60 bg-card border-l border-border shrink-0 flex flex-col min-h-0 overflow-hidden">
+          <div className="p-3 border-b border-border shrink-0">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Command Sequence</p>
             <p className="text-[10px] text-muted-foreground mt-0.5">Click to seek</p>
           </div>
-          <div className="p-2 space-y-1 flex-1">
+          <div className="p-2 space-y-1 flex-1 min-h-0 overflow-y-auto">
             {segments.length === 0 && (
               <p className="text-xs text-muted-foreground/50 text-center py-8">No segments loaded</p>
             )}

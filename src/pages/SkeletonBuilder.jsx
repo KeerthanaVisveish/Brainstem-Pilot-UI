@@ -13,6 +13,65 @@ const COMMAND_TYPES = [
 ];
 
 const PARALLEL_SUB_TYPES = ['wait', 'subsystem'];
+const PALETTE_MIME = 'application/x-skeleton-command';
+
+function InsertionLine() {
+  return <div className="h-0.5 bg-primary rounded-full mx-1 shadow-[0_0_8px_rgba(59,130,246,0.6)]" />;
+}
+
+function getInsertIndex(container, clientY) {
+  if (!container) return 0;
+  const rows = container.querySelectorAll('[data-command-row]');
+  for (let i = 0; i < rows.length; i++) {
+    const rect = rows[i].getBoundingClientRect();
+    if (clientY < rect.top + rect.height / 2) return i;
+  }
+  return rows.length;
+}
+
+function PaletteCommandButton({ type, label, icon: Icon, color, bg, border, desc, onAdd, onPaletteDragStart, onPaletteDragEnd }) {
+  const didDrag = useRef(false);
+
+  return (
+    <div
+      draggable
+      onDragStart={(e) => {
+        didDrag.current = true;
+        e.dataTransfer.setData(PALETTE_MIME, type);
+        e.dataTransfer.effectAllowed = 'copy';
+        onPaletteDragStart(type);
+      }}
+      onDragEnd={() => {
+        onPaletteDragEnd();
+        setTimeout(() => { didDrag.current = false; }, 0);
+      }}
+      role="button"
+      tabIndex={0}
+      onClick={() => {
+        if (didDrag.current) return;
+        onAdd(type);
+      }}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onAdd(type); }}
+      className={`w-full flex items-start gap-2.5 p-3 rounded-xl border ${border} ${bg} hover:opacity-80 transition-all text-left cursor-grab active:cursor-grabbing`}
+    >
+      <Icon className={`w-4 h-4 ${color} shrink-0 mt-0.5`} />
+      <div>
+        <p className={`text-xs font-semibold ${color}`}>{label}</p>
+        <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">{desc}</p>
+      </div>
+    </div>
+  );
+}
+
+function createCommand(type) {
+  return {
+    id: `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    type,
+    label: '',
+    ...(type === 'wait' ? { defaultWait: 0 } : {}),
+    ...(type === 'parallel' ? { parallelSubs: [] } : {}),
+  };
+}
 
 function CommandCard({ cmd, index, onDelete, onUpdate, subsystems }) {
   const type = COMMAND_TYPES.find(t => t.type === cmd.type) ?? COMMAND_TYPES[0];
@@ -43,6 +102,7 @@ function CommandCard({ cmd, index, onDelete, onUpdate, subsystems }) {
         <div
           ref={provided.innerRef}
           {...provided.draggableProps}
+          data-command-row
           className={`rounded-xl border bg-card transition-all ${type.border} ${snapshot.isDragging ? 'shadow-xl opacity-90' : ''}`}
         >
           <div className="flex items-start gap-3 p-3">
@@ -111,10 +171,10 @@ function CommandCard({ cmd, index, onDelete, onUpdate, subsystems }) {
                   {parallelOpen && (
                     <div className="px-3 pb-3 space-y-2 border-t border-green-500/20 bg-green-500/5">
                       {(cmd.parallelSubs ?? []).map((sub, si) => (
-                        <div key={sub.id} className="flex items-center gap-2 mt-2 bg-card rounded-lg p-2">
-                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider w-14 shrink-0">{sub.type}</span>
+                        <div key={sub.id} className="mt-2 bg-card rounded-lg p-2.5 space-y-2">
+                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">{sub.type}</span>
                           {sub.type === 'wait' ? (
-                            <div className="flex items-center gap-1 flex-1">
+                            <div className="flex items-center gap-1">
                               <input type="number" value={sub.defaultWait ?? 0} step={0.1} min={0}
                                 onChange={e => updateParallelSub(si, { defaultWait: parseFloat(e.target.value) })}
                                 className="w-14 bg-secondary/50 border border-border rounded px-1.5 py-0.5 text-xs font-mono text-foreground outline-none focus:border-primary"
@@ -122,22 +182,30 @@ function CommandCard({ cmd, index, onDelete, onUpdate, subsystems }) {
                               <span className="text-xs text-muted-foreground">s</span>
                             </div>
                           ) : (
-                            <div className="flex gap-1 flex-1 min-w-0">
-                              <select value={sub.subsystemName ?? ''} onChange={e => updateParallelSub(si, { subsystemName: e.target.value, commandName: '' })}
-                                className="flex-1 bg-secondary/50 border border-border rounded px-1.5 py-0.5 text-xs text-foreground outline-none min-w-0">
-                                <option value="">— Sys —</option>
-                                {subsystems.map(s => <option key={s._id ?? s.id ?? s.name} value={s.name}>{s.name}</option>)}
-                              </select>
-                              {sub.subsystemName && (
-                                <select value={sub.commandName ?? ''} onChange={e => updateParallelSub(si, { commandName: e.target.value })}
-                                  className="flex-1 bg-secondary/50 border border-border rounded px-1.5 py-0.5 text-xs text-foreground outline-none min-w-0">
-                                  <option value="">— Cmd —</option>
-                                  {(subsystems.find(s => s.name === sub.subsystemName)?.commands ?? []).map(c => <option key={c._id ?? c.id ?? c.name} value={c.name}>{c.name}</option>)}
+                            <div className="flex flex-col gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground shrink-0 w-16">Subsystem:</span>
+                                <select value={sub.subsystemName ?? ''} onChange={e => updateParallelSub(si, { subsystemName: e.target.value, commandName: '' })}
+                                  className="flex-1 bg-secondary/50 border border-border rounded px-1.5 py-1 text-xs text-foreground outline-none focus:border-primary min-w-0">
+                                  <option value="">— Select —</option>
+                                  {subsystems.map(s => <option key={s._id ?? s.id ?? s.name} value={s.name}>{s.name}</option>)}
                                 </select>
+                              </div>
+                              {sub.subsystemName && (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-muted-foreground shrink-0 w-16">Command:</span>
+                                  <select value={sub.commandName ?? ''} onChange={e => updateParallelSub(si, { commandName: e.target.value })}
+                                    className="flex-1 bg-secondary/50 border border-border rounded px-1.5 py-1 text-xs text-foreground outline-none focus:border-primary min-w-0">
+                                    <option value="">— Select —</option>
+                                    {(subsystems.find(s => s.name === sub.subsystemName)?.commands ?? []).map(c => <option key={c._id ?? c.id ?? c.name} value={c.name}>{c.name}</option>)}
+                                  </select>
+                                </div>
                               )}
                             </div>
                           )}
-                          <button onClick={() => removeParallelSub(si)} className="text-destructive/50 hover:text-destructive"><Trash2 className="w-3 h-3" /></button>
+                          <div className="flex justify-end">
+                            <button onClick={() => removeParallelSub(si)} className="text-destructive/50 hover:text-destructive"><Trash2 className="w-3 h-3" /></button>
+                          </div>
                         </div>
                       ))}
                       <div className="flex gap-2 mt-1">
@@ -170,8 +238,11 @@ export default function SkeletonBuilder() {
   const [name, setName] = useState('');
   const [commands, setCommands] = useState([]);
   const [subsystems, setSubsystems] = useState([]);
+  const [paletteDrag, setPaletteDrag] = useState(null);
+  const [insertIndex, setInsertIndex] = useState(null);
   const stateRef = useRef({});
   const savedNameRef = useRef(null);
+  const listRef = useRef(null);
 
   useEffect(() => {
     Promise.all([
@@ -208,6 +279,29 @@ export default function SkeletonBuilder() {
 
   const saveTimer = useRef(null);
 
+  const handleSequenceDragOver = (e) => {
+    if (!paletteDrag && !e.dataTransfer.types.includes(PALETTE_MIME)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    setInsertIndex(getInsertIndex(listRef.current, e.clientY));
+  };
+
+  const handleSequenceDrop = (e) => {
+    const type = e.dataTransfer.getData(PALETTE_MIME) || paletteDrag;
+    if (!type || !COMMAND_TYPES.some(t => t.type === type)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    insertCommandAt(type, getInsertIndex(listRef.current, e.clientY));
+    setPaletteDrag(null);
+    setInsertIndex(null);
+  };
+
+  const clearPaletteDrag = () => {
+    setPaletteDrag(null);
+    setInsertIndex(null);
+  };
+
   const save = async () => {
     const { name: n, commands: c } = stateRef.current;
     const skeletonData = { name: n, commands: c };
@@ -240,24 +334,7 @@ export default function SkeletonBuilder() {
     saveTimer.current = setTimeout(save, 500);
   };
 
-  const addCommand = (type) => {
-    const newCmd = { id: `cmd-${Date.now()}`, type, label: '', ...(type === 'wait' ? { defaultWait: 0 } : {}), ...(type === 'parallel' ? { parallelSubs: [] } : {}) };
-    setCommands(prev => {
-      const next = [...prev, newCmd];
-      clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(async () => {
-        const skData = { name, commands: next };
-        if (!String(id).startsWith('gen-')) {
-          await updateEntity('SkeletonAuto', id, skData);
-          await saveSkeletonToProject(skData, savedNameRef.current);
-        }
-      }, 500);
-      return next;
-    });
-  };
-
-  const deleteCommand = (index) => setCommands(prev => {
-    const next = prev.filter((_, i) => i !== index);
+  const persistCommands = (next) => {
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       const skData = { name, commands: next };
@@ -266,36 +343,44 @@ export default function SkeletonBuilder() {
         await saveSkeletonToProject(skData, savedNameRef.current);
       }
     }, 500);
+  };
+
+  const insertCommandAt = (type, index) => {
+    const newCmd = createCommand(type);
+    setCommands(prev => {
+      const next = [...prev];
+      next.splice(index, 0, newCmd);
+      persistCommands(next);
+      return next;
+    });
+  };
+
+  const addCommand = (type) => insertCommandAt(type, commands.length);
+
+  const deleteCommand = (index) => setCommands(prev => {
+    const next = prev.filter((_, i) => i !== index);
+    persistCommands(next);
     return next;
   });
 
   const updateCommand = (index, updates) => setCommands(prev => {
     const next = prev.map((c, i) => i === index ? { ...c, ...updates } : c);
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      const skData = { name, commands: next };
-      if (!String(id).startsWith('gen-')) {
-        await updateEntity('SkeletonAuto', id, skData);
-        await saveSkeletonToProject(skData, savedNameRef.current);
-      }
-    }, 500);
+    persistCommands(next);
     return next;
   });
 
   const onDragEnd = (result) => {
-    if (!result.destination) return;
-    const reordered = Array.from(commands);
-    const [moved] = reordered.splice(result.source.index, 1);
-    reordered.splice(result.destination.index, 0, moved);
-    setCommands(reordered);
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      const skData = { name, commands: reordered };
-      if (!String(id).startsWith('gen-')) {
-        await updateEntity('SkeletonAuto', id, skData);
-        await saveSkeletonToProject(skData, savedNameRef.current);
-      }
-    }, 500);
+    const { source, destination } = result;
+    if (!destination) return;
+    if (source.droppableId !== 'commands' || destination.droppableId !== 'commands') return;
+    if (source.index === destination.index) return;
+    setCommands(prev => {
+      const next = Array.from(prev);
+      const [moved] = next.splice(result.source.index, 1);
+      next.splice(result.destination.index, 0, moved);
+      persistCommands(next);
+      return next;
+    });
   };
 
   const createVariantAuto = async () => {
@@ -317,7 +402,7 @@ export default function SkeletonBuilder() {
   );
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="h-screen bg-background flex flex-col overflow-hidden">
       <div className="flex items-center gap-3 px-4 py-2.5 bg-card border-b border-border z-10 shrink-0 flex-wrap gap-y-2">
         <button onClick={handleBack} className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors shrink-0">
           <ChevronLeft className="w-4 h-4" />
@@ -333,50 +418,77 @@ export default function SkeletonBuilder() {
         </button>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-lg mx-auto">
-            <p className="text-xs text-muted-foreground mb-4">Build your auto sequence below. Drag to reorder. Each slot will be filled in by variant autos.</p>
-            <DragDropContext onDragEnd={onDragEnd}>
+      <DragDropContext onDragEnd={onDragEnd}>
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          <div
+            className="flex-1 min-h-0 overflow-y-auto p-6"
+            onDragOver={handleSequenceDragOver}
+            onDrop={handleSequenceDrop}
+          >
+            <div className="max-w-lg mx-auto">
+              <p className="text-xs text-muted-foreground mb-4">
+                Build your auto sequence below. Drag commands from the panel into any position, or click to add at the end.
+              </p>
               <Droppable droppableId="commands">
-                {(provided) => (
-                  <div ref={provided.innerRef} {...provided.droppableProps} className="space-y-2 mb-4">
-                    {commands.length === 0 && (
+                {(provided, snapshot) => (
+                  <div
+                    ref={(el) => {
+                      provided.innerRef(el);
+                      listRef.current = el;
+                    }}
+                    {...provided.droppableProps}
+                    onDragLeave={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget)) clearPaletteDrag();
+                    }}
+                    className={`space-y-2 mb-4 min-h-[60vh] rounded-xl transition-colors ${
+                      snapshot.isDraggingOver || paletteDrag ? 'bg-primary/5 ring-1 ring-primary/20' : ''
+                    }`}
+                  >
+                    {commands.length === 0 && !paletteDrag && (
                       <div className="text-center py-12 text-muted-foreground/50 border-2 border-dashed border-border rounded-xl">
                         <p className="text-sm">No commands yet</p>
-                        <p className="text-xs mt-1">Add commands from the panel →</p>
+                        <p className="text-xs mt-1">Drag from the panel → or click to add</p>
                       </div>
                     )}
+                    {paletteDrag && insertIndex === 0 && <InsertionLine />}
                     {commands.map((cmd, i) => (
-                      <CommandCard key={cmd.id} cmd={cmd} index={i} onDelete={deleteCommand} onUpdate={updateCommand} subsystems={subsystems} />
+                      <React.Fragment key={cmd.id}>
+                        <CommandCard cmd={cmd} index={i} onDelete={deleteCommand} onUpdate={updateCommand} subsystems={subsystems} />
+                        {paletteDrag && insertIndex === i + 1 && <InsertionLine />}
+                      </React.Fragment>
                     ))}
                     {provided.placeholder}
                   </div>
                 )}
               </Droppable>
-            </DragDropContext>
+            </div>
           </div>
-        </div>
 
-        <div className="w-56 bg-card border-l border-border p-4 overflow-y-auto shrink-0">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Add Command</p>
-          <div className="space-y-2">
-            {COMMAND_TYPES.map(({ type, label, icon: Icon, color, bg, border, desc }) => (
-              <button key={type} onClick={() => addCommand(type)}
-                className={`w-full flex items-start gap-2.5 p-3 rounded-xl border ${border} ${bg} hover:opacity-80 transition-all text-left`}>
-                <Icon className={`w-4 h-4 ${color} shrink-0 mt-0.5`} />
-                <div>
-                  <p className={`text-xs font-semibold ${color}`}>{label}</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">{desc}</p>
-                </div>
-              </button>
-            ))}
+          <div className="w-56 bg-card border-l border-border p-4 shrink-0 overflow-y-auto">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Add Command</p>
+            <div className="space-y-2">
+              {COMMAND_TYPES.map(({ type, label, icon, color, bg, border, desc }) => (
+                <PaletteCommandButton
+                  key={type}
+                  type={type}
+                  label={label}
+                  icon={icon}
+                  color={color}
+                  bg={bg}
+                  border={border}
+                  desc={desc}
+                  onAdd={addCommand}
+                  onPaletteDragStart={setPaletteDrag}
+                  onPaletteDragEnd={clearPaletteDrag}
+                />
+              ))}
+            </div>
+            {subsystems.length === 0 && (
+              <p className="text-[10px] text-muted-foreground/50 mt-4 text-center">No subsystems configured</p>
+            )}
           </div>
-          {subsystems.length === 0 && (
-            <p className="text-[10px] text-muted-foreground/50 mt-4 text-center">No subsystems configured</p>
-          )}
         </div>
-      </div>
+      </DragDropContext>
     </div>
   );
 }

@@ -28,6 +28,20 @@ function drawStar(ctx, cx, cy, r, color) {
 
 const FIELD_IMAGE_URL = 'https://media.base44.com/images/public/6a033bb4c2b77149a04836f8/b5bb0f72c_image.png';
 const CTRL_RADIUS = 7;
+
+function lockControls180(wp, controlType, newControlPos) {
+  const dx = newControlPos.x - wp.x;
+  const dy = newControlPos.y - wp.y;
+  const oppositeType = controlType === 'prevControl' ? 'nextControl' : 'prevControl';
+  const updates = { [controlType]: newControlPos };
+  const oppDist = wp[oppositeType]
+    ? Math.hypot(wp[oppositeType].x - wp.x, wp[oppositeType].y - wp.y)
+    : Math.hypot(dx, dy);
+  const thisDist = Math.hypot(dx, dy);
+  const scale = thisDist > 0 ? oppDist / thisDist : 1;
+  updates[oppositeType] = { x: wp.x - dx * scale, y: wp.y - dy * scale };
+  return updates;
+}
 const MIDPOINT_RADIUS = 7;
 
 export default function FieldCanvas({
@@ -66,6 +80,13 @@ export default function FieldCanvas({
     if (!c) return { w: 800, h: 400 };
     return { w: c.width, h: c.height };
   };
+
+  const getUiScale = useCallback(() => {
+    const { w, h } = getCanvasSize();
+    const fieldScale = Math.min(w / FIELD_WIDTH_M, h / FIELD_HEIGHT_M) * zoom;
+    const refScale = (800 / FIELD_WIDTH_M) * 1.2;
+    return Math.max(0.35, Math.min(1.2, fieldScale / refScale));
+  }, [zoom]);
 
   const toPixel = useCallback((x, y) => {
     const { w, h } = getCanvasSize();
@@ -111,6 +132,7 @@ export default function FieldCanvas({
   }
 
   function drawPath(ctx) {
+    const s = getUiScale();
     const pts = trajectory.states;
     ctx.beginPath();
     const { px, py } = toPixel(pts[0].x, pts[0].y);
@@ -120,9 +142,9 @@ export default function FieldCanvas({
       ctx.lineTo(nx, ny);
     }
     ctx.strokeStyle = 'rgba(50,200,255,0.75)';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 3 * s;
     ctx.shadowColor = 'rgba(50,200,255,0.4)';
-    ctx.shadowBlur = 8;
+    ctx.shadowBlur = 8 * s;
     ctx.stroke();
     ctx.shadowBlur = 0;
     if (showVelocity) {
@@ -132,39 +154,42 @@ export default function FieldCanvas({
   }
 
   function drawArrow(ctx, pt, color) {
+    const s = getUiScale();
     const { px, py } = toPixel(pt.x, pt.y);
     const rad = (pt.heading * Math.PI) / 180;
-    const len = 14;
+    const len = 14 * s;
     const ex = px + Math.cos(rad) * len;
     const ey = py - Math.sin(rad) * len;
     ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(ex, ey);
-    ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5 * s; ctx.stroke();
     const angle = Math.atan2(ey - py, ex - px);
     ctx.beginPath();
     ctx.moveTo(ex, ey);
-    ctx.lineTo(ex - 6 * Math.cos(angle - 0.4), ey - 6 * Math.sin(angle - 0.4));
-    ctx.lineTo(ex - 6 * Math.cos(angle + 0.4), ey - 6 * Math.sin(angle + 0.4));
+    ctx.lineTo(ex - 6 * s * Math.cos(angle - 0.4), ey - 6 * s * Math.sin(angle - 0.4));
+    ctx.lineTo(ex - 6 * s * Math.cos(angle + 0.4), ey - 6 * s * Math.sin(angle + 0.4));
     ctx.closePath(); ctx.fillStyle = color; ctx.fill();
   }
 
   function drawTriggerStars(ctx) {
     if (!trajectory || !subsystemTriggers?.length) return;
+    const s = getUiScale();
     const colors = ['#a855f7', '#f59e0b', '#10b981', '#ef4444', '#3b82f6'];
     subsystemTriggers.forEach((trig, i) => {
       const pose = getPoseAtProgress(trajectory, Number(trig.progress ?? 0));
       if (!pose) return;
       const { px, py } = toPixel(pose.x, pose.y);
-      drawStar(ctx, px, py, 11, colors[i % colors.length]);
-      ctx.font = 'bold 10px Inter';
+      drawStar(ctx, px, py, 11 * s, colors[i % colors.length]);
+      ctx.font = `bold ${Math.round(10 * s)}px Inter`;
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.fillText(trig.subsystemName || `T${i + 1}`, px, py - 13);
+      ctx.fillText(trig.subsystemName || `T${i + 1}`, px, py - 13 * s);
     });
   }
 
   function drawRotationTargetGhosts(ctx) {
     if (!trajectory || !rotationTargets?.length) return;
+    const s = getUiScale();
     rotationTargets.forEach((tgt) => {
       const pose = getPoseAtProgress(trajectory, tgt.progress ?? 0);
       if (!pose) return;
@@ -178,16 +203,16 @@ export default function FieldCanvas({
       ctx.translate(px, py);
       ctx.rotate(rotRad + Math.PI / 2);
       ctx.strokeStyle = '#22d3ee';
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 1.5 * s;
       ctx.globalAlpha = 0.7;
       ctx.strokeRect(-rw / 2, -rh / 2, rw, rh);
       ctx.globalAlpha = 1;
       ctx.beginPath();
-      ctx.arc(0, -rh / 2, 7, 0, Math.PI * 2);
+      ctx.arc(0, -rh / 2, 7 * s, 0, Math.PI * 2);
       ctx.fillStyle = '#22d3ee';
       ctx.fill();
       ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 1.5 * s;
       ctx.stroke();
       ctx.restore();
     });
@@ -259,6 +284,7 @@ export default function FieldCanvas({
   }
 
   function drawWaypoint(ctx, wp, i) {
+    const s = getUiScale();
     const { px, py } = toPixel(wp.x, wp.y);
     const isSelected = i === selectedIndex;
     const isFirst = i === 0;
@@ -276,28 +302,29 @@ export default function FieldCanvas({
       ctx.rotate(rad + Math.PI / 2);
       if (isSelected) {
         ctx.fillStyle = 'rgba(50,200,255,0.15)';
-        ctx.fillRect(-rw / 2 - 4, -rh / 2 - 4, rw + 8, rh + 8);
+        ctx.fillRect(-rw / 2 - 4 * s, -rh / 2 - 4 * s, rw + 8 * s, rh + 8 * s);
       }
       const wpProgress = getWaypointProgress(i);
       const visibleSubs = getVisibleSubsystemsAtProgress(wpProgress);
       drawRobotShape(ctx, rw, rh, visibleSubs, 1 / mPerPx,
         isFirst ? 'rgba(34,221,102,0.75)' : 'rgba(255,68,68,0.75)',
         isSelected ? '#ffffff' : 'rgba(255,255,255,0.6)',
-        isSelected ? 2 : 1.5);
+        isSelected ? 2 * s : 1.5 * s);
       ctx.restore();
     } else {
-      const r = MIDPOINT_RADIUS + (isSelected ? 4 : 0);
+      const r = (MIDPOINT_RADIUS + (isSelected ? 4 : 0)) * s;
       ctx.beginPath();
       ctx.arc(px, py, r, 0, Math.PI * 2);
       ctx.fillStyle = isSelected ? 'rgba(50,200,255,0.85)' : 'rgba(26,144,204,0.75)';
       ctx.fill();
       ctx.strokeStyle = isSelected ? '#ffffff' : 'rgba(255,255,255,0.5)';
-      ctx.lineWidth = isSelected ? 2 : 1.5;
+      ctx.lineWidth = (isSelected ? 2 : 1.5) * s;
       ctx.stroke();
     }
   }
 
   function drawControlHandles(ctx, wpIdx) {
+    const s = getUiScale();
     const wp = waypoints[wpIdx];
     const { px: ax, py: ay } = toPixel(wp.x, wp.y);
     const { prevCtrl, nextCtrl } = getControlPoints(wpIdx);
@@ -311,17 +338,17 @@ export default function FieldCanvas({
       ctx.beginPath();
       ctx.setLineDash(isSelected ? [] : [5, 4]);
       ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2 * s;
       ctx.moveTo(ax, ay);
       ctx.lineTo(cx, cy);
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.beginPath();
-      ctx.arc(cx, cy, CTRL_RADIUS, 0, Math.PI * 2);
+      ctx.arc(cx, cy, CTRL_RADIUS * s, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
       ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 1.5 * s;
       ctx.stroke();
     };
 
@@ -435,6 +462,7 @@ export default function FieldCanvas({
   // ── Hit tests ─────────────────────────────────────────────────────────────
 
   const hitRotationDot = useCallback((px, py) => {
+    const s = getUiScale();
     for (let i = waypoints.length - 1; i >= 0; i--) {
       const isFirst = i === 0;
       const isLast = i === waypoints.length - 1;
@@ -448,12 +476,13 @@ export default function FieldCanvas({
       const canvasRot = rad + Math.PI / 2;
       const dotX = cx + Math.cos(canvasRot) * 0 - Math.sin(canvasRot) * (-rh / 2);
       const dotY = cy + Math.sin(canvasRot) * 0 + Math.cos(canvasRot) * (-rh / 2);
-      if (Math.hypot(px - dotX, py - dotY) <= 14) return i;
+      if (Math.hypot(px - dotX, py - dotY) <= 14 * s) return i;
     }
     return -1;
-  }, [waypoints, toPixel, ROBOT_H_M]);
+  }, [waypoints, toPixel, ROBOT_H_M, getUiScale]);
 
   const hitWaypoint = useCallback((px, py) => {
+    const s = getUiScale();
     const { w, h } = getCanvasSize();
     for (let i = waypoints.length - 1; i >= 0; i--) {
       const wp = waypoints[i];
@@ -464,8 +493,8 @@ export default function FieldCanvas({
       if (isFirst || isLast) {
         const { px: rx1 } = metersToPixels(wp.x + ROBOT_W_M, wp.y, w, h, panRef.current, zoom);
         const { py: ry1 } = metersToPixels(wp.x, wp.y - ROBOT_H_M, w, h, panRef.current, zoom);
-        const rw = (rx1 - cx) / 2 + 4;
-        const rh = (ry1 - cy) / 2 + 4;
+        const rw = (rx1 - cx) / 2 + 4 * s;
+        const rh = (ry1 - cy) / 2 + 4 * s;
         const rad = (-(wp.rotation ?? 0) * Math.PI) / 180;
         const canvasRad = rad + Math.PI / 2;
         const dx = px - cx, dy = py - cy;
@@ -473,30 +502,32 @@ export default function FieldCanvas({
         const localY = -dx * Math.sin(canvasRad) + dy * Math.cos(canvasRad);
         if (Math.abs(localX) <= rw && Math.abs(localY) <= rh) return i;
       } else {
-        if (Math.hypot(px - cx, py - cy) <= MIDPOINT_RADIUS + 6) return i;
+        if (Math.hypot(px - cx, py - cy) <= (MIDPOINT_RADIUS + 6) * s) return i;
       }
     }
     return -1;
-  }, [waypoints, toPixel, zoom]);
+  }, [waypoints, toPixel, zoom, getUiScale]);
 
   const hitControlHandle = useCallback((px, py) => {
+    const s = getUiScale();
     for (let i = 0; i < waypoints.length; i++) {
       const isFirst = i === 0;
       const isLast = i === waypoints.length - 1;
       const { prevCtrl, nextCtrl } = getControlPoints(i);
       if (!isFirst && prevCtrl) {
         const { px: cx, py: cy } = toPixel(prevCtrl.x, prevCtrl.y);
-        if (Math.hypot(px - cx, py - cy) <= CTRL_RADIUS + 5) return { type: 'prevControl', index: i };
+        if (Math.hypot(px - cx, py - cy) <= (CTRL_RADIUS + 5) * s) return { type: 'prevControl', index: i };
       }
       if (!isLast && nextCtrl) {
         const { px: cx, py: cy } = toPixel(nextCtrl.x, nextCtrl.y);
-        if (Math.hypot(px - cx, py - cy) <= CTRL_RADIUS + 5) return { type: 'nextControl', index: i };
+        if (Math.hypot(px - cx, py - cy) <= (CTRL_RADIUS + 5) * s) return { type: 'nextControl', index: i };
       }
     }
     return null;
-  }, [waypoints, getControlPoints, toPixel]);
+  }, [waypoints, getControlPoints, toPixel, getUiScale]);
 
   const hitRotationTargetDot = useCallback((px, py) => {
+    const s = getUiScale();
     if (!trajectory || !rotationTargets?.length) return -1;
     for (let i = rotationTargets.length - 1; i >= 0; i--) {
       const tgt = rotationTargets[i];
@@ -509,10 +540,10 @@ export default function FieldCanvas({
       const canvasRot = rotRad + Math.PI / 2;
       const dotX = cx + Math.cos(canvasRot) * 0 - Math.sin(canvasRot) * (-rh / 2);
       const dotY = cy + Math.sin(canvasRot) * 0 + Math.cos(canvasRot) * (-rh / 2);
-      if (Math.hypot(px - dotX, py - dotY) <= 14) return i;
+      if (Math.hypot(px - dotX, py - dotY) <= 14 * s) return i;
     }
     return -1;
-  }, [trajectory, rotationTargets, toPixel, ROBOT_H_M]);
+  }, [trajectory, rotationTargets, toPixel, ROBOT_H_M, getUiScale]);
 
   // ── Mouse handlers ────────────────────────────────────────────────────────
 
@@ -573,9 +604,13 @@ export default function FieldCanvas({
       const isFirstNode = waypoints.length === 0;
 
       if (prev) {
-        onUpdateWaypoint(waypoints.length - 1, {
-          nextControl: { x: prev.x + (clamped.x - prev.x) / 3, y: prev.y + (clamped.y - prev.y) / 3 }
-        });
+        const nextControl = { x: prev.x + dx, y: prev.y + dy };
+        const prevIdx = waypoints.length - 1;
+        const isPrevFirst = prevIdx === 0;
+        const prevUpdates = isPrevFirst
+          ? { nextControl }
+          : lockControls180(prev, 'nextControl', nextControl);
+        onUpdateWaypoint(prevIdx, prevUpdates);
       }
       
       onAddWaypoint({

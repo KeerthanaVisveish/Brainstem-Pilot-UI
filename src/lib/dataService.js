@@ -7,9 +7,14 @@ import {
   loadSettingsFromProject,
   loadSubsystemConfigFromProject,
   savePathToProject,
+  saveSkeletonToProject,
+  saveVariantToProject,
   saveSettingsToProject,
   saveSubsystemConfigToProject,
   deletePathFromProject,
+  deleteSkeletonFromProject,
+  deleteVariantFromProject,
+  safeNameFromString,
 } from './projectFolder';
 
 const ENTITY_FILES = {
@@ -91,7 +96,7 @@ function stripIds(records) {
 function ensureIds(records) {
   return records.map((r, idx) => {
     // Use existing id, or derive a stable one from the name, or generate one
-    const id = r.id || (r.name ? r.name.trim().replace(/[^a-zA-Z0-9_\-]/g, '_') : `gen-${Date.now()}-${idx}`);
+    const id = r.id || (r.name ? safeNameFromString(r.name) : `gen-${Date.now()}-${idx}`);
     return {
       id,
       created_date: r.created_date || new Date().toISOString(),
@@ -103,9 +108,8 @@ function ensureIds(records) {
 
 // ─── SavedAuto helpers ──────────────────────────────────────────────────────
 
-function safeNameFromString(str) {
-  return (str ?? '').trim().replace(/[^a-zA-Z0-9_\-]/g, '_');
-}
+// Re-export for UI modules
+export { safeNameFromString };
 
 async function readSavedAutos() {
   const paths = await loadPathsFromProject();
@@ -113,11 +117,26 @@ async function readSavedAutos() {
   return ensureIds(paths);
 }
 
+async function readSkeletonAutos() {
+  const data = await loadSkeletonsFromProject();
+  if (!data) return [];
+  return ensureIds(data);
+}
+
+async function readChildAutos() {
+  const data = await loadVariantsFromProject();
+  if (!data) return [];
+  return ensureIds(data);
+}
+
 async function writeSavedAuto(id, updates) {
   const all = await readSavedAutos();
   const record = all.find(r => r.id === id);
   if (!record) return;
-  const updated = { ...record, ...updates, updated_date: new Date().toISOString() };
+  const oldId = record.id;
+  const newName = updates.name ?? record.name;
+  const newId = updates.name ? safeNameFromString(newName) : oldId;
+  const updated = { ...record, ...updates, id: newId, updated_date: new Date().toISOString() };
   const previousName = updates.name && updates.name !== record.name ? record.name : null;
   await savePathToProject(updated, previousName);
 }
@@ -154,7 +173,6 @@ export async function createEntity(entityType, data) {
 
   if (folder) {
     if (entityType === 'SavedAuto') {
-      // Use safe name as stable id so URL always matches file
       const id = safeNameFromString(data.name) || `gen-${Date.now()}`;
       const record = {
         id,
@@ -163,6 +181,28 @@ export async function createEntity(entityType, data) {
         ...data,
       };
       await savePathToProject(record, null);
+      return record;
+    }
+    if (entityType === 'SkeletonAuto') {
+      const id = safeNameFromString(data.name) || `gen-${Date.now()}`;
+      const record = {
+        id,
+        created_date: new Date().toISOString(),
+        updated_date: new Date().toISOString(),
+        ...data,
+      };
+      await saveSkeletonToProject(record, null);
+      return record;
+    }
+    if (entityType === 'ChildAuto') {
+      const id = safeNameFromString(data.name) || `gen-${Date.now()}`;
+      const record = {
+        id,
+        created_date: new Date().toISOString(),
+        updated_date: new Date().toISOString(),
+        ...data,
+      };
+      await saveVariantToProject(record, null);
       return record;
     }
     const records = (await readFromFolder(entityType)) || [];
@@ -186,6 +226,39 @@ export async function updateEntity(entityType, id, updates) {
   // SavedAuto is always folder-only (IDs are safe-name slugs, not DB IDs)
   if (entityType === 'SavedAuto') {
     if (folder) await writeSavedAuto(id, updates);
+    return;
+  }
+
+  if (entityType === 'SkeletonAuto' && folder) {
+    const all = await readSkeletonAutos();
+    const record = all.find(r => r.id === id);
+    if (!record) return;
+    const oldId = record.id;
+    const newName = updates.name ?? record.name;
+    const newId = updates.name ? safeNameFromString(newName) : oldId;
+    const updated = { ...record, ...updates, id: newId, updated_date: new Date().toISOString() };
+    const previousName = updates.name && updates.name !== record.name ? record.name : null;
+    await saveSkeletonToProject(updated, previousName);
+
+    if (newId !== oldId) {
+      const variants = await readChildAutos();
+      for (const v of variants.filter(v => v.skeletonId === oldId)) {
+        await saveVariantToProject({ ...v, skeletonId: newId }, null);
+      }
+    }
+    return;
+  }
+
+  if (entityType === 'ChildAuto' && folder) {
+    const all = await readChildAutos();
+    const record = all.find(r => r.id === id);
+    if (!record) return;
+    const oldId = record.id;
+    const newName = updates.name ?? record.name;
+    const newId = updates.name ? safeNameFromString(newName) : oldId;
+    const updated = { ...record, ...updates, id: newId, updated_date: new Date().toISOString() };
+    const previousName = updates.name && updates.name !== record.name ? record.name : null;
+    await saveVariantToProject(updated, previousName);
     return;
   }
 
@@ -217,7 +290,19 @@ export async function deleteEntity(entityType, id) {
     if (entityType === 'SavedAuto') {
       const all = await readSavedAutos();
       const record = all.find(r => r.id === id);
-      if (record?.name) await deletePathFromProject(record.name);
+      await deletePathFromProject(record?.name ?? id);
+      return;
+    }
+    if (entityType === 'SkeletonAuto') {
+      const all = await readSkeletonAutos();
+      const record = all.find(r => r.id === id);
+      await deleteSkeletonFromProject(record?.name ?? id);
+      return;
+    }
+    if (entityType === 'ChildAuto') {
+      const all = await readChildAutos();
+      const record = all.find(r => r.id === id);
+      await deleteVariantFromProject(record?.name ?? id);
       return;
     }
 
