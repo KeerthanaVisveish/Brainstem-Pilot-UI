@@ -1,0 +1,14 @@
+{
+  "name": "SubsystemConfig",
+  "type": "object",
+  "properties": {
+    "subsystems": {
+      "type": "array",
+      "description": "List of robot subsystems with their commands and visual bindings",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "required": []
+}

@@ -1,0 +1,54 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 20% 8%;
+    --foreground: 210 20% 95%;
+    --card: 220 18% 11%;
+    --card-foreground: 210 20% 95%;
+    --popover: 220 18% 11%;
+    --popover-foreground: 210 20% 95%;
+    --primary: 205 100% 55%;
+    --primary-foreground: 220 20% 8%;
+    --secondary: 220 15% 18%;
+    --secondary-foreground: 210 20% 85%;
+    --muted: 220 15% 15%;
+    --muted-foreground: 210 15% 55%;
+    --accent: 205 80% 45%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 15% 20%;
+    --input: 220 15% 18%;
+    --ring: 205 100% 55%;
+    --radius: 0.6rem;
+
+    --field-bg: 220 22% 10%;
+    --waypoint: 205 100% 55%;
+    --path-color: 205 80% 65%;
+    --robot-color: 45 100% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-inter antialiased;
+  }
+}
+
+.canvas-cursor-crosshair {
+  cursor: crosshair;
+}
+.canvas-cursor-grab {
+  cursor: grab;
+}
+.canvas-cursor-grabbing {
+  cursor: grabbing;
+}

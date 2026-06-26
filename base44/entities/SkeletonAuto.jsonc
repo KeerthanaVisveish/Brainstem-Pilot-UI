@@ -1,0 +1,20 @@
+{
+  "name": "SkeletonAuto",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Name of the skeleton auto template"
+    },
+    "commands": {
+      "type": "array",
+      "description": "Ordered list of command blocks (path slots, subsystem triggers, waits)",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "required": [
+    "name"
+  ]
+}
