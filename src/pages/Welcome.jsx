@@ -91,15 +91,15 @@ export default function Welcome() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 relative overflow-hidden">
-      {/* Settings + Documentation top-left */}
+      {/* Documentation + Settings top-left */}
       <div className="absolute top-4 left-4 flex items-center gap-2 z-10">
-        <Link to="/settings" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-all">
-          <Settings2 className="w-3.5 h-3.5" />
-          Settings
-        </Link>
         <Link to="/docs" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-all">
           <BookOpen className="w-3.5 h-3.5" />
           Documentation
+        </Link>
+        <Link to="/settings" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-all">
+          <Settings2 className="w-3.5 h-3.5" />
+          Settings
         </Link>
       </div>
       {/* Open project top-right */}
@@ -145,7 +145,7 @@ export default function Welcome() {
 
         </h1>
         <p className="text-muted-foreground text-base max-w-md mx-auto leading-relaxed">
-          Design, simulate, and export autonomous routines for your FRC robot. Built for the 2026 Rebuilt season.
+          Plan field paths, sequence autonomous commands, and preview your full routine on the field — built for FRC and FTC teams.
         </p>
       </motion.div>
 

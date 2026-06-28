@@ -6,20 +6,27 @@ import {
   loadVariantsFromProject,
   loadSettingsFromProject,
   loadSubsystemConfigFromProject,
+  loadAppSettingsFromProject,
   savePathToProject,
   saveSkeletonToProject,
   saveVariantToProject,
   saveSettingsToProject,
   saveSubsystemConfigToProject,
+  saveAppSettingsToProject,
   deletePathFromProject,
   deleteSkeletonFromProject,
   deleteVariantFromProject,
   safeNameFromString,
 } from './projectFolder';
+import { getDefaultFieldId } from './fieldConfig';
+import { normalizeSavedPaths } from './pathWaypoints';
+
+const APP_SETTINGS_STORAGE_KEY = 'brainstem_app_settings';
 
 const ENTITY_FILES = {
   RobotSettings: 'robot-settings.json',
   SubsystemConfig: 'subsystem-config.json',
+  AppSettings: 'app_settings.json',
 };
 
 const fileModTimes = {};
@@ -114,7 +121,7 @@ export { safeNameFromString };
 async function readSavedAutos() {
   const paths = await loadPathsFromProject();
   if (!paths) return [];
-  return ensureIds(paths);
+  return ensureIds(normalizeSavedPaths(paths));
 }
 
 async function readSkeletonAutos() {
@@ -162,9 +169,22 @@ export async function readEntity(entityType) {
       const c = await loadSubsystemConfigFromProject();
       return c ? ensureIds([c]) : [];
     }
+    if (entityType === 'AppSettings') {
+      const s = await loadAppSettingsFromProject();
+      return s ?? { selectedFieldId: getDefaultFieldId() };
+    }
   }
 
-  if (!getProjectDir()) return [];
+  if (!getProjectDir()) {
+    if (entityType === 'AppSettings') {
+      try {
+        const raw = localStorage.getItem(APP_SETTINGS_STORAGE_KEY);
+        if (raw) return JSON.parse(raw);
+      } catch { /* ignore */ }
+      return { selectedFieldId: getDefaultFieldId() };
+    }
+    return [];
+  }
   return await base44.entities[entityType].list();
 }
 
@@ -317,6 +337,16 @@ export async function deleteEntity(entityType, id) {
 
 export async function writeEntity(entityType, data) {
   const folder = getFolder();
+
+  if (entityType === 'AppSettings') {
+    if (folder) {
+      await saveAppSettingsToProject(data);
+      fileModTimes[entityType] = Date.now();
+    } else {
+      localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify(data));
+    }
+    return;
+  }
 
   if (folder) {
     if (await checkExternalChange(entityType)) {

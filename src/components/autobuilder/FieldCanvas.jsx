@@ -1,10 +1,10 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { metersToPixels, pixelsToMeters, clampToField, clampPan } from '../../lib/fieldCoordinates';
+import {
+  metersToPixels, pixelsToMeters, clampToField, clampPan,
+  computeFieldLayout, drawFieldImage,
+} from '../../lib/fieldCoordinates';
 import { getPoseAtProgress } from '../../lib/trajectoryMath';
-import { FIELD_WIDTH_M, FIELD_HEIGHT_M } from '../../lib/trajectoryMath';
-
-const FIELD_IMAGE_PADDING_X = 0.033;
-const FIELD_IMAGE_PADDING_Y = 0.033;
+import { useFieldConfig } from '../../context/FieldConfigContext';
 
 function drawStar(ctx, cx, cy, r, color) {
   const spikes = 5;
@@ -26,7 +26,6 @@ function drawStar(ctx, cx, cy, r, color) {
   ctx.stroke();
 }
 
-const FIELD_IMAGE_URL = 'https://media.base44.com/images/public/6a033bb4c2b77149a04836f8/b5bb0f72c_image.png';
 const CTRL_RADIUS = 7;
 
 function lockControls180(wp, controlType, newControlPos) {
@@ -51,6 +50,7 @@ export default function FieldCanvas({
   robotSettings, zoom, setZoom, onResetView,
   subsystemTriggers, subsystemConfig, rotationTargets, onUpdateRotationTargets,
 }) {
+  const { widthM, heightM, imageUrl, activeField } = useFieldConfig();
   const ROBOT_W_M = robotSettings?.width ?? 0.76;
   const ROBOT_H_M = robotSettings?.length ?? 0.76;
 
@@ -71,9 +71,9 @@ export default function FieldCanvas({
   useEffect(() => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.src = FIELD_IMAGE_URL;
+    img.src = imageUrl;
     img.onload = () => setFieldImage(img);
-  }, []);
+  }, [imageUrl]);
 
   const getCanvasSize = () => {
     const c = canvasRef.current;
@@ -83,10 +83,11 @@ export default function FieldCanvas({
 
   const getUiScale = useCallback(() => {
     const { w, h } = getCanvasSize();
-    const fieldScale = Math.min(w / FIELD_WIDTH_M, h / FIELD_HEIGHT_M) * zoom;
-    const refScale = (800 / FIELD_WIDTH_M) * 1.2;
+    const iw = activeField?.imageWidth ?? 1024;
+    const fieldScale = Math.min(w / iw, h / (activeField?.imageHeight ?? 415)) * zoom;
+    const refScale = (800 / iw) * 1.2;
     return Math.max(0.35, Math.min(1.2, fieldScale / refScale));
-  }, [zoom]);
+  }, [zoom, activeField]);
 
   const toPixel = useCallback((x, y) => {
     const { w, h } = getCanvasSize();
@@ -112,19 +113,19 @@ export default function FieldCanvas({
   // ── Draw helpers ─────────────────────────────────────────────────────────
 
   function drawGrid(ctx) {
-    const { px: x0, py: y0 } = toPixel(0, FIELD_HEIGHT_M);
-    const { px: x1, py: y1 } = toPixel(FIELD_WIDTH_M, 0);
+    const { px: x0, py: y0 } = toPixel(0, heightM);
+    const { px: x1, py: y1 } = toPixel(widthM, 0);
     ctx.save();
     ctx.beginPath();
     ctx.rect(x0, y0, x1 - x0, y1 - y0);
     ctx.clip();
     ctx.strokeStyle = 'rgba(100,180,255,0.08)';
     ctx.lineWidth = 1;
-    for (let x = 0; x <= FIELD_WIDTH_M; x++) {
+    for (let x = 0; x <= widthM; x++) {
       const { px } = toPixel(x, 0);
       ctx.beginPath(); ctx.moveTo(px, y0); ctx.lineTo(px, y1); ctx.stroke();
     }
-    for (let y = 0; y <= FIELD_HEIGHT_M; y++) {
+    for (let y = 0; y <= heightM; y++) {
       const { py } = toPixel(0, y);
       ctx.beginPath(); ctx.moveTo(x0, py); ctx.lineTo(x1, py); ctx.stroke();
     }
@@ -408,24 +409,14 @@ export default function FieldCanvas({
 
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    const { px: x0, py: y0 } = toPixel(0, FIELD_HEIGHT_M);
-    const { px: x1, py: y1 } = toPixel(FIELD_WIDTH_M, 0);
-    const fw = x1 - x0, fh = y1 - y0;
+    const layout = computeFieldLayout(w, h, panRef.current, zoom, activeField);
     if (fieldImage) {
-      ctx.save();
-      const expandW = fw / (1 - 2 * FIELD_IMAGE_PADDING_X);
-      const expandH = fh / (1 - 2 * FIELD_IMAGE_PADDING_Y);
-      const imgX = x0 - expandW * FIELD_IMAGE_PADDING_X;
-      const imgY = y0 - expandH * FIELD_IMAGE_PADDING_Y;
-      ctx.translate(imgX + expandW / 2, imgY + expandH / 2);
-      ctx.rotate(Math.PI);
-      ctx.translate(-expandW / 2, expandH / 2);
-      ctx.scale(1, -1);
-      ctx.drawImage(fieldImage, 0, 0, expandW, expandH);
-      ctx.restore();
+      drawFieldImage(ctx, fieldImage, layout);
     } else {
+      const { px: x0, py: y0 } = toPixel(0, heightM);
+      const { px: x1, py: y1 } = toPixel(widthM, 0);
       ctx.fillStyle = '#1a3a1a';
-      ctx.fillRect(x0, y0, fw, fh);
+      ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
     }
 
     drawGrid(ctx);

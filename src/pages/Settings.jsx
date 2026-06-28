@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, Plus, Trash2, Settings2 } from 'lucide-react';
+import { ChevronLeft, Plus, Trash2, Settings2, Cpu, SlidersHorizontal } from 'lucide-react';
 import RobotPreview from '../components/settings/RobotPreview';
+import AppSettingsTab from '../components/settings/AppSettingsTab';
 import { motion } from 'framer-motion';
 import { readEntity, writeEntity } from '../lib/dataService';
 import { saveSettingsToProject } from '../lib/projectFolder';
@@ -27,6 +28,7 @@ function fromDisplay(val, unit) {
 
 export default function Settings() {
   const navigate = useNavigate();
+  const [tab, setTab] = useState('robot');
   const [settings, setSettings] = useState(null);
   const [dimUnit, setDimUnit] = useState('m');    // 'm' | 'in'
   const [velUnit, setVelUnit] = useState('m/s');  // 'm/s' | 'ft/s'
@@ -53,7 +55,7 @@ export default function Settings() {
 
   const handleBack = async () => {
     clearTimeout(saveTimer.current);
-    await save();
+    if (tab === 'robot') await save();
     navigate('/');
   };
 
@@ -108,35 +110,63 @@ export default function Settings() {
     setVelUnit(newUnit);
   };
 
-  if (!settings) return (
+  if (!settings && tab === 'robot') return (
     <div className="min-h-screen bg-background flex items-center justify-center">
       <div className="w-6 h-6 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
     </div>
   );
 
-  const dimUnitLabel = dimUnit;
-  const velUnitLabel = velUnit;
-  const accelUnitLabel = velUnit === 'ft/s' ? 'ft/s²' : 'm/s²';
-
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-xl mx-auto">
-        <div className="flex items-center gap-4 mb-8">
+        <div className="flex items-center gap-4 mb-6">
           <button onClick={handleBack} className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors">
             <ChevronLeft className="w-4 h-4" />
             <span className="text-sm font-medium">Home</span>
           </button>
           <div className="flex items-center gap-2 flex-1">
             <Settings2 className="w-5 h-5 text-primary" />
-            <h1 className="text-xl font-bold text-foreground">Robot Settings</h1>
+            <h1 className="text-xl font-bold text-foreground">Settings</h1>
           </div>
-          <div className="flex items-center gap-2">
-            <UnitToggle options={['m', 'in']} value={dimUnit} onChange={switchDimUnit} />
-            <UnitToggle options={['m/s', 'ft/s']} value={velUnit} onChange={switchVelUnit} />
-          </div>
+          {tab === 'robot' && (
+            <div className="flex items-center gap-2">
+              <UnitToggle options={['m', 'in']} value={dimUnit} onChange={switchDimUnit} />
+              <UnitToggle options={['m/s', 'ft/s']} value={velUnit} onChange={switchVelUnit} />
+            </div>
+          )}
         </div>
 
+        <div className="flex gap-1 bg-secondary/40 rounded-xl p-1 mb-6 w-fit">
+          <button
+            type="button"
+            onClick={() => setTab('robot')}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              tab === 'robot' ? 'bg-card text-foreground shadow' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Cpu className="w-4 h-4" /> Robot Settings
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('app')}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              tab === 'app' ? 'bg-card text-foreground shadow' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <SlidersHorizontal className="w-4 h-4" /> App Settings
+          </button>
+        </div>
+
+        {tab === 'app' ? (
+          <AppSettingsTab />
+        ) : settings && (
         <div className="space-y-6">
+          {(() => {
+            const dimUnitLabel = dimUnit;
+            const velUnitLabel = velUnit;
+            const accelUnitLabel = velUnit === 'ft/s' ? 'ft/s²' : 'm/s²';
+            return (
+              <>
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-card border border-border rounded-xl p-5">
             <h2 className="text-sm font-semibold text-foreground mb-4">Robot Frame Dimensions</h2>
             <div className="grid grid-cols-2 gap-4">
@@ -225,7 +255,11 @@ export default function Settings() {
               </div>
             )}
           </motion.div>
+              </>
+            );
+          })()}
         </div>
+        )}
       </div>
     </div>
   );

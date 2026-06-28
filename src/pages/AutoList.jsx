@@ -4,7 +4,8 @@ import { Plus, ChevronLeft, Trash2, Route, Settings2, Pencil, Check, X, Copy } f
 import { readEntity, createEntity, updateEntity, deleteEntity, safeNameFromString } from '../lib/dataService';
 import { mirrorPathData, flipStartSide } from '../lib/trajectoryMath';
 import { motion } from 'framer-motion';
-import { FIELD_WIDTH_M, FIELD_HEIGHT_M } from '../lib/trajectoryMath';
+import { metersToPixels, computeFieldLayout, drawFieldImage } from '../lib/fieldCoordinates';
+import { useFieldConfig } from '../context/FieldConfigContext';
 
 function generateSplinePoints(waypoints, samplesPerSegment = 40) {
   const pts = [];
@@ -24,9 +25,6 @@ function generateSplinePoints(waypoints, samplesPerSegment = 40) {
   }
   return pts;
 }
-import { FIELD_IMAGE_PADDING_X, FIELD_IMAGE_PADDING_Y } from '../lib/fieldCoordinates';
-
-const FIELD_IMAGE_URL = 'https://media.base44.com/images/public/6a033bb4c2b77149a04836f8/b5bb0f72c_image.png';
 
 function safeId(name) {
   return safeNameFromString(name);
@@ -46,15 +44,16 @@ function ChoiceModal({ open, title, description, onClose, children }) {
 }
 
 function PathPreview({ waypoints }) {
+  const { activeField, imageUrl } = useFieldConfig();
   const canvasRef = useRef(null);
   const [fieldImage, setFieldImage] = useState(null);
 
   useEffect(() => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.src = FIELD_IMAGE_URL;
+    img.src = imageUrl;
     img.onload = () => setFieldImage(img);
-  }, []);
+  }, [imageUrl]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -66,35 +65,26 @@ function PathPreview({ waypoints }) {
     ctx.fillStyle = '#0d1117';
     ctx.fillRect(0, 0, W, H);
 
-    const pad = 4;
-    const fw = W - pad * 2;
-    const fh = H - pad * 2;
-
-    const expandW = fw / (1 - 2 * FIELD_IMAGE_PADDING_X);
-    const expandH = fh / (1 - 2 * FIELD_IMAGE_PADDING_Y);
-    const imgX = pad - expandW * FIELD_IMAGE_PADDING_X;
-    const imgY = pad - expandH * FIELD_IMAGE_PADDING_Y;
-    ctx.save();
-    ctx.translate(imgX, imgY + expandH);
-    ctx.scale(1, -1);
+    const zoom = 1;
+    const pan = { x: 0, y: 0 };
+    const layout = computeFieldLayout(W, H, pan, zoom, activeField);
     if (fieldImage) {
-      ctx.drawImage(fieldImage, 0, 0, expandW, expandH);
-    } else {
-      ctx.fillStyle = '#1a3a1a';
-      ctx.fillRect(expandW * FIELD_IMAGE_PADDING_X, expandH * FIELD_IMAGE_PADDING_Y, fw, fh);
+      drawFieldImage(ctx, fieldImage, layout);
     }
-    ctx.restore();
 
-    const toX = (x) => pad + (x / FIELD_WIDTH_M) * fw;
-    const toY = (y) => H - pad - (y / FIELD_HEIGHT_M) * fh;
+    const toPixel = (x, y) => metersToPixels(x, y, W, H, pan, zoom, activeField);
 
     if (!waypoints || waypoints.length < 2) return;
 
     const pts = generateSplinePoints(waypoints, 40);
     if (pts.length > 1) {
       ctx.beginPath();
-      ctx.moveTo(toX(pts[0].x), toY(pts[0].y));
-      for (let i = 1; i < pts.length; i++) ctx.lineTo(toX(pts[i].x), toY(pts[i].y));
+      const { px: x0, py: y0 } = toPixel(pts[0].x, pts[0].y);
+      ctx.moveTo(x0, y0);
+      for (let i = 1; i < pts.length; i++) {
+        const { px, py } = toPixel(pts[i].x, pts[i].y);
+        ctx.lineTo(px, py);
+      }
       ctx.strokeStyle = 'rgba(50,200,255,0.9)';
       ctx.lineWidth = 2;
       ctx.shadowColor = 'rgba(50,200,255,0.5)';
@@ -104,12 +94,13 @@ function PathPreview({ waypoints }) {
     }
 
     waypoints.forEach((wp, i) => {
+      const { px, py } = toPixel(wp.x, wp.y);
       ctx.beginPath();
-      ctx.arc(toX(wp.x), toY(wp.y), 3, 0, Math.PI * 2);
+      ctx.arc(px, py, 3, 0, Math.PI * 2);
       ctx.fillStyle = i === 0 ? '#22dd66' : i === waypoints.length - 1 ? '#ff4444' : '#32c8ff';
       ctx.fill();
     });
-  }, [waypoints, fieldImage]);
+  }, [waypoints, fieldImage, activeField]);
 
   return <canvas ref={canvasRef} width={240} height={120} className="w-full h-full border border-white/30 rounded" />;
 }
@@ -203,7 +194,6 @@ export default function AutoList() {
     setRenamingId(null);
   };
 
-  // Duplicate path handler — opens choice modal
   const promptDuplicate = (e, targetAuto) => {
     e.stopPropagation();
     setDuplicateTarget(targetAuto);
@@ -286,7 +276,6 @@ export default function AutoList() {
                   )}
                   {renamingId !== auto.id && (
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                      {/* Duplicate Action Button */}
                       <button
                         onClick={e => promptDuplicate(e, auto)}
                         title="Duplicate Path"

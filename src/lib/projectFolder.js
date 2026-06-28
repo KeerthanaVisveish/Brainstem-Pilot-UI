@@ -1,6 +1,9 @@
 // Project folder management using File System Access API
 // Stores a directory handle in memory (persists for the browser session)
 
+import { getDefaultFieldId } from './fieldConfig.js';
+import { formatWaypointForExport, normalizeSavedPaths } from './pathWaypoints.js';
+
 let _dirHandle = null;
 
 /** File/id slug: spaces become underscores; display names keep spaces. */
@@ -36,14 +39,8 @@ export async function savePathToProject(pathObj, previousName) {
   const wps = pathObj.waypoints ?? [];
   const exportObj = {
     ...pathObj,
-    waypoints: wps.map((w, i) => ({
-      x: fmt4(w.x),
-      y: fmt4(w.y),
-      prevControl: (i === 0) ? null : (w.prevControl ? { x: fmt4(w.prevControl.x), y: fmt4(w.prevControl.y) } : null),
-      nextControl: (i === wps.length - 1) ? null : (w.nextControl ? { x: fmt4(w.nextControl.x), y: fmt4(w.nextControl.y) } : null),
-      rotation: fmt4(w.rotation ?? 0),
-    })),
-    // Waypoint optional parameters indexed by waypoint index for easy reference
+    waypoints: wps.map((w, i) => formatWaypointForExport(w, i, wps.length, fmt4)),
+    // Legacy index map for external tools; inline wp.params is the source of truth
     waypointParams: Object.fromEntries(
       wps.map((w, i) => [i, w.params ?? {}]).filter(([, p]) => Object.keys(p).length > 0)
     ),
@@ -143,6 +140,14 @@ export async function saveSubsystemConfigToProject(configObj) {
   await writable.close();
 }
 
+export async function saveAppSettingsToProject(settingsObj) {
+  if (!_dirHandle) return;
+  const fh = await _dirHandle.getFileHandle('app_settings.json', { create: true });
+  const writable = await fh.createWritable();
+  await writable.write(JSON.stringify(settingsObj, null, 2));
+  await writable.close();
+}
+
 // FIX: getFileHandle returns a FileSystemFileHandle — must call .getFile() then .text()
 export async function loadPathsFromProject() {
   if (!_dirHandle) return null;
@@ -225,6 +230,18 @@ export async function loadSubsystemConfigFromProject() {
   }
 }
 
+export async function loadAppSettingsFromProject() {
+  if (!_dirHandle) return null;
+  try {
+    const fh = await _dirHandle.getFileHandle('app_settings.json', { create: false });
+    const file = await fh.getFile();
+    const text = await file.text();
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 export async function initializeProjectFolder() {
   if (!_dirHandle) return;
   const settingsExists = await loadSettingsFromProject();
@@ -240,5 +257,9 @@ export async function initializeProjectFolder() {
   const configExists = await loadSubsystemConfigFromProject();
   if (!configExists) {
     await saveSubsystemConfigToProject({ subsystems: [] });
+  }
+  const appSettingsExists = await loadAppSettingsFromProject();
+  if (!appSettingsExists) {
+    await saveAppSettingsToProject({ selectedFieldId: getDefaultFieldId() });
   }
 }

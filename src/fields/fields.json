@@ -1,0 +1,41 @@
+{
+  "defaultFieldId": "rebuilt_2026",
+  "fields": [
+    {
+      "id": "rebuilt_2026",
+      "name": "Rebuilt (2026)",
+      "season": "2026",
+      "imageFile": "rebuilt_2026.png",
+      "widthM": 16.541,
+      "heightM": 8.070,
+      "imageWidth": 1024,
+      "imageHeight": 415,
+      "originPixel": { "x": 139, "y": 390 },
+      "endPixel": { "x": 886, "y": 26 }
+    },
+    {
+      "id": "reefscape_2025",
+      "name": "Reefscape (2025)",
+      "season": "2025",
+      "imageFile": "reefscape_2025.png",
+      "widthM": 17.551,
+      "heightM": 8.052,
+      "imageWidth": 2880,
+      "imageHeight": 1388,
+      "originPixel": { "x": 386, "y": 1179 },
+      "endPixel": { "x": 2494, "y": 211 }
+    },
+    {
+      "id": "crescendo_2024",
+      "name": "Crescendo (2024)",
+      "season": "2024",
+      "imageFile": "crescendo_2024.png",
+      "widthM": 16.541,
+      "heightM": 8.211,
+      "imageWidth": 7680,
+      "imageHeight": 3320,
+      "originPixel": { "x": 1024, "y": 3160 },
+      "endPixel": { "x": 6655, "y": 366 }
+    }
+  ]
+}

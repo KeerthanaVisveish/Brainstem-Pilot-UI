@@ -15,7 +15,7 @@ import ChildBuilder from './pages/ChildBuilder';
 import SubsystemConfigPage from './pages/SubsystemConfigPage';
 import AutoSimulator from './pages/AutoSimulator';
 import Documentation from './pages/Documentation';
-// Add page imports here
+import { FieldConfigProvider } from './context/FieldConfigContext';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -42,7 +42,8 @@ const AuthenticatedApp = () => {
 
   // Render the main app
   return (
-    <Routes>
+    <FieldConfigProvider>
+      <Routes>
       <Route path="/" element={<Welcome />} />
       <Route path="/autos" element={<AutoList />} />
       <Route path="/auto-builder/:id" element={<AutoBuilder />} />
@@ -56,6 +57,7 @@ const AuthenticatedApp = () => {
       <Route path="/docs" element={<Documentation />} />
       <Route path="*" element={<PageNotFound />} />
     </Routes>
+    </FieldConfigProvider>
   );
 };
 

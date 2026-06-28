@@ -1,71 +1,102 @@
-import { FIELD_WIDTH_M, FIELD_HEIGHT_M } from './trajectoryMath';
+import { getFieldDimensions, getActiveField } from './fieldConfig';
 
-// Calibrated from Path 3 corner waypoints placed visually on the field image.
-// These are the raw coordinate values (in the old coord system) where the
-// actual playable field corners are located in the image.
-const RAW_FIELD_X0 = 0.8476;   // left edge of playable field
-const RAW_FIELD_Y0 = 0.4878;   // bottom edge of playable field
-const RAW_FIELD_X1 = 16.4131;  // right edge of playable field
-const RAW_FIELD_Y1 = 7.6231;   // top edge of playable field
+/** Uniform image layout on canvas — image is never stretched, only scaled uniformly. */
+export function computeFieldLayout(canvasWidth, canvasHeight, pan, zoom, field) {
+  const active = field ?? getActiveField();
+  const iw = active?.imageWidth ?? 1024;
+  const ih = active?.imageHeight ?? 415;
+  const scale = Math.min(canvasWidth / iw, canvasHeight / ih) * zoom;
+  const drawW = iw * scale;
+  const drawH = ih * scale;
+  const drawX = pan.x + (canvasWidth - drawW) / 2;
+  const drawY = pan.y + (canvasHeight - drawH) / 2;
+  return { field: active, scale, drawX, drawY, drawW, drawH, iw, ih };
+}
 
-const RAW_W = RAW_FIELD_X1 - RAW_FIELD_X0; // 15.6608
-const RAW_H = RAW_FIELD_Y1 - RAW_FIELD_Y0; // 7.1353
-
-// Total image span (borders are assumed symmetric on each side)
-const IMG_RAW_W = RAW_FIELD_X0 + RAW_W + RAW_FIELD_X0;
-const IMG_RAW_H = RAW_FIELD_Y0 + RAW_H + RAW_FIELD_Y0;
-
-// Padding fractions: fraction of image outside playable field on each side.
-// Used by FieldCanvas and AutoSimulator to overdraw the image so borders show.
-export const FIELD_IMAGE_PADDING_X = RAW_FIELD_X0 / IMG_RAW_W; // ≈ 0.0213
-export const FIELD_IMAGE_PADDING_Y = RAW_FIELD_Y0 / IMG_RAW_H; // ≈ 0.0601
-
-// Convert FRC meters (0,0 = bottom-left of playable field) to canvas pixels.
-// The playable field exactly fills the canvas letterbox area.
-export function metersToPixels(x, y, canvasWidth, canvasHeight, pan, zoom) {
-  const scale = Math.min(canvasWidth / FIELD_WIDTH_M, canvasHeight / FIELD_HEIGHT_M) * zoom;
-  const offsetX = pan.x + (canvasWidth - FIELD_WIDTH_M * scale) / 2;
-  const offsetY = pan.y + (canvasHeight - FIELD_HEIGHT_M * scale) / 2;
+/** Field meters (0,0 = bottom-left of playable area) → image file pixels (top-left origin, y down). */
+export function metersToImagePixels(x, y, field) {
+  const active = field ?? getActiveField();
+  const { widthM, heightM } = getFieldDimensions(active);
+  const { originPixel, endPixel, imageWidth, imageHeight } = active ?? {};
+  if (originPixel && endPixel) {
+    return {
+      ix: originPixel.x + (x / widthM) * (endPixel.x - originPixel.x),
+      iy: originPixel.y + (y / heightM) * (endPixel.y - originPixel.y),
+    };
+  }
   return {
-    px: offsetX + x * scale,
-    py: offsetY + (FIELD_HEIGHT_M - y) * scale, // flip Y: y=0 → bottom
+    ix: (x / widthM) * (imageWidth ?? 1024),
+    iy: (1 - y / heightM) * (imageHeight ?? 415),
   };
 }
 
-// Convert canvas pixels to FRC meters
-export function pixelsToMeters(px, py, canvasWidth, canvasHeight, pan, zoom) {
-  const scale = Math.min(canvasWidth / FIELD_WIDTH_M, canvasHeight / FIELD_HEIGHT_M) * zoom;
-  const offsetX = pan.x + (canvasWidth - FIELD_WIDTH_M * scale) / 2;
-  const offsetY = pan.y + (canvasHeight - FIELD_HEIGHT_M * scale) / 2;
-  const x = (px - offsetX) / scale;
-  const y = FIELD_HEIGHT_M - (py - offsetY) / scale;
-  return { x, y };
-}
-
-// Clamp to playable field bounds (FRC meters)
-export function clampToField(x, y) {
+/** Image file pixels → canvas pixels (direct mapping, no image rotation). */
+export function imagePixelsToCanvas(ix, iy, layout) {
+  const { scale, drawX, drawY } = layout;
   return {
-    x: Math.max(0, Math.min(FIELD_WIDTH_M, x)),
-    y: Math.max(0, Math.min(FIELD_HEIGHT_M, y)),
+    px: drawX + ix * scale,
+    py: drawY + iy * scale,
   };
 }
 
-// Clamp pan so the field image is never entirely off-screen.
-// At least a `margin` fraction of the field must remain visible.
-export function clampPan(pan, zoom, canvasWidth, canvasHeight, margin = 0.15) {
-  const scale = Math.min(canvasWidth / FIELD_WIDTH_M, canvasHeight / FIELD_HEIGHT_M) * zoom;
-  const fieldPxW = FIELD_WIDTH_M * scale;
-  const fieldPxH = FIELD_HEIGHT_M * scale;
-  // The field rect top-left in canvas coords (without pan) is centered
-  const basePx = (canvasWidth - fieldPxW) / 2;
-  const basePy = (canvasHeight - fieldPxH) / 2;
-  // With pan, field left = basePx + pan.x, field right = basePx + pan.x + fieldPxW
-  // We want field right  > margin * canvasWidth  → pan.x > margin*cw - basePx - fieldPxW
-  // We want field left   < (1-margin) * canvasWidth → pan.x < (1-margin)*cw - basePx
-  const minPanX = margin * canvasWidth - basePx - fieldPxW;
-  const maxPanX = (1 - margin) * canvasWidth - basePx;
-  const minPanY = margin * canvasHeight - basePy - fieldPxH;
-  const maxPanY = (1 - margin) * canvasHeight - basePy;
+export function canvasToImagePixels(px, py, layout) {
+  const { scale, drawX, drawY } = layout;
+  return {
+    ix: (px - drawX) / scale,
+    iy: (py - drawY) / scale,
+  };
+}
+
+export function metersToPixels(x, y, canvasWidth, canvasHeight, pan, zoom, field) {
+  const layout = computeFieldLayout(canvasWidth, canvasHeight, pan, zoom, field);
+  const { ix, iy } = metersToImagePixels(x, y, layout.field);
+  return imagePixelsToCanvas(ix, iy, layout);
+}
+
+export function pixelsToMeters(px, py, canvasWidth, canvasHeight, pan, zoom, field) {
+  const layout = computeFieldLayout(canvasWidth, canvasHeight, pan, zoom, field);
+  const { ix, iy } = canvasToImagePixels(px, py, layout);
+  const { widthM, heightM } = getFieldDimensions(layout.field);
+  const { originPixel, endPixel } = layout.field ?? {};
+  if (originPixel && endPixel) {
+    return {
+      x: ((ix - originPixel.x) / (endPixel.x - originPixel.x)) * widthM,
+      y: ((iy - originPixel.y) / (endPixel.y - originPixel.y)) * heightM,
+    };
+  }
+  return {
+    x: (ix / (layout.iw ?? 1024)) * widthM,
+    y: (1 - iy / (layout.ih ?? 415)) * heightM,
+  };
+}
+
+export function drawFieldImage(ctx, fieldImage, layout) {
+  if (!fieldImage || !layout) return;
+  const { drawX, drawY, drawW, drawH } = layout;
+  ctx.drawImage(fieldImage, drawX, drawY, drawW, drawH);
+}
+
+export function clampToField(x, y, field) {
+  const { widthM, heightM } = getFieldDimensions(field ?? getActiveField());
+  return {
+    x: Math.max(0, Math.min(widthM, x)),
+    y: Math.max(0, Math.min(heightM, y)),
+  };
+}
+
+export function clampPan(pan, zoom, canvasWidth, canvasHeight, margin = 0.15, field) {
+  const active = field ?? getActiveField();
+  const iw = active?.imageWidth ?? 1024;
+  const ih = active?.imageHeight ?? 415;
+  const scale = Math.min(canvasWidth / iw, canvasHeight / ih) * zoom;
+  const drawW = iw * scale;
+  const drawH = ih * scale;
+  const baseX = (canvasWidth - drawW) / 2;
+  const baseY = (canvasHeight - drawH) / 2;
+  const minPanX = margin * canvasWidth - baseX - drawW;
+  const maxPanX = (1 - margin) * canvasWidth - baseX;
+  const minPanY = margin * canvasHeight - baseY - drawH;
+  const maxPanY = (1 - margin) * canvasHeight - baseY;
   return {
     x: Math.max(minPanX, Math.min(maxPanX, pan.x)),
     y: Math.max(minPanY, Math.min(maxPanY, pan.y)),
@@ -76,5 +107,56 @@ export function snapToGrid(x, y, gridSize = 0.5) {
   return {
     x: Math.round(x / gridSize) * gridSize,
     y: Math.round(y / gridSize) * gridSize,
+  };
+}
+
+/** Field grid line spacing in meters (matches FieldCanvas drawGrid). */
+export const FIELD_GRID_SPACING_M = 1;
+
+/** Default visible field region (meters) when opening the path editor — bottom-left anchored. */
+export const DEFAULT_PATH_EDITOR_VIEW_RECT = {
+  xMin: 0,
+  yMin: 0,
+  xMax: 9.25,
+};
+
+/** Compute zoom + pan to fit {@link DEFAULT_PATH_EDITOR_VIEW_RECT} in the canvas. */
+export function getDefaultPathEditorView(canvasWidth, canvasHeight, field) {
+  const active = field ?? getActiveField();
+  const { heightM } = getFieldDimensions(active);
+  const rect = { ...DEFAULT_PATH_EDITOR_VIEW_RECT, yMax: heightM };
+  const margin = 0.03;
+  if (!canvasWidth || !canvasHeight) return { zoom: 1.5, pan: { x: 0, y: 0 } };
+
+  const { ix: ix0, iy: iy0 } = metersToImagePixels(rect.xMin, rect.yMin, active);
+  const { ix: ix1, iy: iy1 } = metersToImagePixels(rect.xMax, rect.yMax, active);
+
+  const layout1 = computeFieldLayout(canvasWidth, canvasHeight, { x: 0, y: 0 }, 1, active);
+  const bl1 = imagePixelsToCanvas(ix0, iy0, layout1);
+  const tr1 = imagePixelsToCanvas(ix1, iy1, layout1);
+  const rectW1 = Math.abs(tr1.px - bl1.px);
+  const rectH1 = Math.abs(tr1.py - bl1.py);
+  if (rectW1 < 1 || rectH1 < 1) return { zoom: 1.5, pan: { x: 0, y: 0 } };
+
+  const availW = canvasWidth * (1 - 2 * margin);
+  const availH = canvasHeight * (1 - 2 * margin);
+  const zoom = Math.min(availW / rectW1, availH / rectH1);
+
+  const layout = computeFieldLayout(canvasWidth, canvasHeight, { x: 0, y: 0 }, zoom, active);
+  const bl = imagePixelsToCanvas(ix0, iy0, layout);
+  const tr = imagePixelsToCanvas(ix1, iy1, layout);
+  const rectCenterY = (bl.py + tr.py) / 2;
+
+  const { ix: ixNudge } = metersToImagePixels(0.5 * FIELD_GRID_SPACING_M, 0, active);
+  const { px: pxNudge } = imagePixelsToCanvas(ixNudge, iy0, layout);
+  const panRightPx = pxNudge - bl.px;
+
+  const pan = {
+    x: canvasWidth * margin - bl.px + panRightPx,
+    y: canvasHeight / 2 - rectCenterY,
+  };
+  return {
+    zoom,
+    pan: clampPan(pan, zoom, canvasWidth, canvasHeight, 0.02, active),
   };
 }

@@ -8,6 +8,7 @@ import {
   FIELD_IMAGE,
   DOC_IMAGES,
   DocScreenshot,
+  DocSplitScreens,
   NewPathPopupScreen,
   OptionalParamsScreen,
   WaypointsBezierSection,
@@ -50,23 +51,23 @@ const OPTIONAL_PARAMS = [
     detail: 'If the robot is within distance tolerance but its heading is outside this band, the follower keeps correcting rotation before advancing. Tighten for align-and-score moves; loosen when heading at the waypoint matters less.',
   },
   {
-    key: 'minLinearPow',
+    key: 'minLinearSpeed',
     label: 'Min Linear Speed',
-    unit: '0–1 power',
+    unit: 'm/s',
     default: 0,
-    summary: 'Floor on forward power so the robot does not stop while passing through this waypoint.',
-    detail: 'Use this on points the robot should drive through rather than settle at. A non-zero minimum keeps the robot moving at least that fast through the waypoint instead of braking to a halt between segments.',
+    summary: 'Floor on forward speed so the robot does not stop while passing through this waypoint.',
+    detail: 'Use this on points the robot should drive through rather than settle at. A non-zero minimum keeps the robot moving at least that fast through the waypoint instead of braking to a halt between segments. Value is in meters per second.',
   },
   {
-    key: 'maxLinearPow',
-    label: 'Max Linear Power',
-    unit: '0–1 power',
+    key: 'maxLinearSpeed',
+    label: 'Max Linear Speed',
+    unit: 'm/s',
     default: 1,
-    summary: 'Cap on forward power for the leg ending at this waypoint.',
-    detail: 'Lowers the top speed on that segment only — a simple way to manually slow down part of a path (e.g. a careful approach) without changing the path-wide max velocity in Constraints.',
+    summary: 'Speed cap for the leg ending at this waypoint.',
+    detail: 'Lowers the top speed on that segment only — a simple way to manually slow down part of a path (e.g. a careful approach) without changing the path-wide max velocity in Constraints. Value is in meters per second.',
   },
   {
-    key: 'maxTurnSpeed',
+    key: 'maxTurnPower',
     label: 'Max Turn Power',
     unit: '0–1 power',
     default: 1,
@@ -84,7 +85,6 @@ const OPTIONAL_PARAMS = [
   {
     key: 'passPosition',
     label: 'Pass Position',
-    unit: 'boolean',
     default: false,
     summary: 'If the robot overshoots this waypoint, continue to the next one instead of backing up.',
     detail: 'When enabled, missing the point by driving past it will not trigger a reverse or retry — the follower moves on to the next waypoint. Leave off when the robot must actually reach the point (e.g. pickup or scoring positions).',
@@ -214,15 +214,35 @@ export default function Documentation() {
                 <li>In your FRC codebase, create: <code className="text-xs font-mono bg-secondary px-1.5 py-0.5 rounded">deploy/brainstemPilotAuto/</code></li>
                 <li>Open BrainSTEM Pilot → click <strong>Open Project</strong> (top-right).</li>
                 <li>Select that folder (Chrome or Edge required).</li>
-                <li>Default files are created: <code className="text-xs font-mono bg-secondary px-1 rounded">robot_settings.json</code>, <code className="text-xs font-mono bg-secondary px-1 rounded">subsystem_config.json</code>, <code className="text-xs font-mono bg-secondary px-1 rounded">paths/</code>, <code className="text-xs font-mono bg-secondary px-1 rounded">skeletons/</code>, <code className="text-xs font-mono bg-secondary px-1 rounded">variants/</code></li>
+                <li>Default files are created: <code className="text-xs font-mono bg-secondary px-1 rounded">robot_settings.json</code>, <code className="text-xs font-mono bg-secondary px-1 rounded">app_settings.json</code>, <code className="text-xs font-mono bg-secondary px-1 rounded">subsystem_config.json</code>, <code className="text-xs font-mono bg-secondary px-1 rounded">paths/</code>, <code className="text-xs font-mono bg-secondary px-1 rounded">skeletons/</code>, <code className="text-xs font-mono bg-secondary px-1 rounded">variants/</code></li>
               </ol>
+              <h3 className="text-sm font-bold text-foreground mt-8 mb-2">Settings</h3>
+              <p className="text-sm">
+                Open <Link to="/settings" className="text-primary hover:underline">Settings</Link> from the home screen (top-left). There are two tabs:
+              </p>
+              <ul className="list-disc ml-5 space-y-2 text-sm mt-3">
+                <li>
+                  <strong>Robot Settings</strong> — your robot’s frame size, default max velocity and acceleration, and physical subsystem attachments drawn on the robot icon in the path editor. New paths inherit these motion defaults until you override them per path.
+                </li>
+                <li>
+                  <strong>App Settings</strong> — which season field image to use across the app. This updates the background in the path editor, path list previews, and simulator. Pick the field that matches your current game; the choice is saved in your project folder as <code className="text-xs font-mono bg-secondary px-1 rounded">app_settings.json</code>.
+                </li>
+              </ul>
               <Callout title="First step after opening" color="green">
-                Go to <Link to="/settings" className="text-primary hover:underline">Settings</Link> and set robot width, length, max velocity, and max acceleration before drawing paths.
+                In <strong>Robot Settings</strong>, set robot width, length, max velocity, and max acceleration before drawing paths. In <strong>App Settings</strong>, confirm the correct season field is selected.
               </Callout>
-              <DocScreenshot
-                src={DOC_IMAGES.robotSettings}
-                alt="Robot Settings page"
-                caption="Robot Settings — frame dimensions, motion defaults, and subsystem attachments."
+              <DocSplitScreens
+                left={{
+                  src: DOC_IMAGES.robotSettings,
+                  alt: 'Robot Settings tab',
+                  label: 'Robot Settings',
+                }}
+                right={{
+                  src: DOC_IMAGES.appSettings,
+                  alt: 'App Settings tab with field image picker',
+                  label: 'App Settings',
+                }}
+                caption="Robot Settings (left) — frame and motion defaults. App Settings (right) — season field image for the path editor, previews, and simulator."
               />
             </Section>
 
@@ -260,21 +280,27 @@ export default function Documentation() {
               <ul className="list-disc ml-5 space-y-2 text-sm">
                 <li><strong>Start / End</strong> — green and red robot icons with rotation control.</li>
                 <li><strong>Mid waypoints</strong> — blue dots; support optional parameters.</li>
+                <li><strong>End point</strong> — red robot icon; supports optional parameters (e.g. distance tolerance for the final stop).</li>
                 <li><strong>Control handles</strong> — white dots on a straight dashed line through the waypoint (180° locked).</li>
                 <li><strong>Insert waypoint</strong> — sidebar button subdivides a segment.</li>
               </ul>
             </Section>
 
-            <Section id="optional-params" title="Optional Parameters" subtitle="Per-waypoint tuning on intermediate points" icon={Sparkles}>
-              <p>Select an intermediate waypoint (not start or end), then expand <strong>Optional Parameters</strong> in the sidebar.</p>
+            <Section id="optional-params" title="Optional Parameters" subtitle="Per-waypoint tuning on mid and end points" icon={Sparkles}>
+              <p>Select any waypoint except the start point, then expand <strong>Optional Parameters</strong> in the sidebar. The end point is a common place to set distance tolerance for how precisely the robot must finish the path.</p>
               <OptionalParamsScreen />
+              <Callout color="yellow" title="Avoid overly tight tolerances">
+                Extremely small <strong>distance tolerance</strong> or <strong>heading tolerance</strong> values can cause the robot to hunt back and forth around a waypoint — oscillating in position or rotation without settling. If you see jitter or repeated corrections at a stop, loosen these tolerances slightly before tuning other parameters.
+              </Callout>
               <div className="space-y-6 mt-6">
                 {OPTIONAL_PARAMS.map(p => (
                   <div key={p.key} className="rounded-xl border border-border bg-card/50 p-4">
                     <div className="flex items-baseline gap-2 mb-1 flex-wrap">
                       <code className="text-xs font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">{p.key}</code>
                       <span className="text-sm font-semibold text-foreground">{p.label}</span>
-                      <span className="text-[10px] text-muted-foreground ml-auto">default: {String(p.default)}{p.unit ? ` ${p.unit}` : ''}</span>
+                      <span className="text-[10px] text-muted-foreground ml-auto">
+                        default: {String(p.default)}{p.unit ? ` (${p.unit})` : ''}
+                      </span>
                     </div>
                     <p className="text-sm text-foreground/90 mb-1">{p.summary}</p>
                     <p className="text-xs text-muted-foreground leading-relaxed">{p.detail}</p>

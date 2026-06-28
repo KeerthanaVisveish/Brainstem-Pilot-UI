@@ -61,9 +61,9 @@ function NumberInput({ label, value, onChange, step = 0.01, min, max, unit }) {
 const OPTIONAL_PARAMS = [
   { key: 'distTol', label: 'Distance Tolerance', unit: 'm', default: 0.1, step: 0.001, min: 0 },
   { key: 'headingTol', label: 'Heading Tolerance', unit: '°', default: 3.0, step: 0.1, min: 0 },
-  { key: 'minLinearPow', label: 'Min Linear Speed', unit: '', default: 0, step: 0.01, min: 0, max: 1 },
-  { key: 'maxLinearPow', label: 'Max Linear Power', unit: '', default: 1, step: 0.01, min: 0, max: 1 },
-  { key: 'maxTurnSpeed', label: 'Max Turn Power', unit: '', default: 1, step: 0.01, min: 0, max: 1 },
+  { key: 'minLinearSpeed', label: 'Min Linear Speed', unit: 'm/s', default: 0, step: 0.1, min: 0, max: 20 },
+  { key: 'maxLinearSpeed', label: 'Max Linear Speed', unit: 'm/s', default: 1, step: 0.1, min: 0, max: 20 },
+  { key: 'maxTurnPower', label: 'Max Turn Power', unit: '%', default: 1, step: 0.01, min: 0, max: 1 },
   { key: 'maxTime', label: 'Max Time', unit: 's', default: 10, step: 0.1, min: 0 },
   { key: 'passPosition', label: 'Pass Position', unit: '', default: false, type: 'bool' }
 ];
@@ -348,7 +348,7 @@ export default function WaypointSidebar({
                   </div>
                 </div>
               )}
-              {selectedIndex !== 0 && selectedIndex !== waypoints.length - 1 && (
+              {selectedIndex !== 0 && (
                 <OptionalParamsSection wp={selected} onUpdate={(updates) => onUpdate(selectedIndex, updates)} initialOpen={optionalParamsInitialOpen} />
               )}
             </div> :

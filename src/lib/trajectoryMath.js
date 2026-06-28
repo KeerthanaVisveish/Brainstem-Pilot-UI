@@ -1,4 +1,6 @@
-// Physical dimensions of a standard FRC field in meters
+import { getFieldDimensions } from './fieldConfig';
+
+// Physical dimensions of a standard FRC field in meters (defaults; active field may override via fieldConfig)
 export const FIELD_WIDTH_M = 16.541;
 export const FIELD_HEIGHT_M = 8.211;
 
@@ -239,17 +241,18 @@ export function generateTrajectory(waypoints, constraints, rotationTargets = [],
 
 export function mirrorWaypointForFieldSide(wp) {
   if (!wp) return null;
-  const mirroredY = FIELD_HEIGHT_M - wp.y;
+  const { heightM } = getFieldDimensions();
+  const mirroredY = heightM - wp.y;
   const mirroredRotation = normAngle(-(wp.rotation ?? 0));
 
   const mirroredPrev = wp.prevControl ? {
     x: wp.prevControl.x,
-    y: FIELD_HEIGHT_M - wp.prevControl.y,
+    y: heightM - wp.prevControl.y,
   } : null;
 
   const mirroredNext = wp.nextControl ? {
     x: wp.nextControl.x,
-    y: FIELD_HEIGHT_M - wp.nextControl.y,
+    y: heightM - wp.nextControl.y,
   } : null;
 
   return {
@@ -264,17 +267,18 @@ export function mirrorWaypointForFieldSide(wp) {
 
 export function mirrorWaypointForRed(wp) {
   if (!wp) return null;
-  const mirroredX = FIELD_WIDTH_M - wp.x;
+  const { widthM } = getFieldDimensions();
+  const mirroredX = widthM - wp.x;
   const mirroredY = wp.y; 
   const mirroredRotation = normAngle(180 - (wp.rotation ?? 0));
 
   const mirroredPrev = wp.prevControl ? {
-    x: FIELD_WIDTH_M - wp.prevControl.x,
+    x: widthM - wp.prevControl.x,
     y: wp.prevControl.y
   } : null;
 
   const mirroredNext = wp.nextControl ? {
-    x: FIELD_WIDTH_M - wp.nextControl.x,
+    x: widthM - wp.nextControl.x,
     y: wp.nextControl.y
   } : null;
 
@@ -379,11 +383,12 @@ export function mirrorPathData({ waypoints = [], rotationTargets = [], subsystem
 /** Mirror trajectory for opposite field side (reflect across horizontal field midline). */
 export function mirrorTrajectoryFieldSide(traj) {
   if (!traj?.states) return traj;
+  const { heightM } = getFieldDimensions();
   return {
     ...traj,
     states: traj.states.map(s => ({
       ...s,
-      y: FIELD_HEIGHT_M - s.y,
+      y: heightM - s.y,
       heading: normAngle(-(s.heading ?? 0)),
       pathHeading: normAngle(-(s.pathHeading ?? s.heading ?? 0)),
       rotation: s.rotation != null ? normAngle(-s.rotation) : undefined,

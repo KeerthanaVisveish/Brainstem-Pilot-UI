@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { ChevronLeft, Play, Square, RotateCcw, Zap, Clock, GitBranch, ChevronDown } from 'lucide-react';
-import { generateTrajectory, FIELD_WIDTH_M, FIELD_HEIGHT_M, getPoseAtProgress, mirrorTrajectoryFieldSide, chainPathToPose } from '../lib/trajectoryMath';
-import { FIELD_IMAGE_PADDING_X, FIELD_IMAGE_PADDING_Y, metersToPixels } from '../lib/fieldCoordinates';
+import { generateTrajectory, getPoseAtProgress, mirrorTrajectoryFieldSide, chainPathToPose } from '../lib/trajectoryMath';
+import { metersToPixels, computeFieldLayout, drawFieldImage } from '../lib/fieldCoordinates';
+import { useFieldConfig } from '../context/FieldConfigContext';
 import { readEntity } from '../lib/dataService';
 
 // Resolve which visual bindings (subsystem names) are currently "shown" at a given simTime
@@ -56,8 +57,7 @@ function resolveVisibleVisuals(segments, subsystemConfigs, robotSubsystems, simT
   return visibilityMap;
 }
 
-const FIELD_IMAGE_URL = 'https://media.base44.com/images/public/6a033bb4c2b77149a04836f8/b5bb0f72c_image.png';
-const FIELD_ASPECT = FIELD_WIDTH_M / FIELD_HEIGHT_M;
+const FIELD_ASPECT = 16.541 / 8.211;
 
 function drawStar(ctx, cx, cy, r, color) {
   const spikes = 5;
@@ -77,16 +77,16 @@ function drawStar(ctx, cx, cy, r, color) {
   ctx.stroke();
 }
 
-function SimCanvas({ segments, robotSettings, simTime, visibleVisuals, robotSubsystems }) {
+function SimCanvas({ segments, robotSettings, simTime, visibleVisuals, robotSubsystems, widthM, heightM, imageUrl, activeField }) {
   const canvasRef = useRef(null);
   const [fieldImage, setFieldImage] = useState(null);
 
   useEffect(() => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.src = FIELD_IMAGE_URL;
+    img.src = imageUrl;
     img.onload = () => setFieldImage(img);
-  }, []);
+  }, [imageUrl]);
 
   const lastPoseRef = useRef(null);
 
@@ -100,26 +100,17 @@ function SimCanvas({ segments, robotSettings, simTime, visibleVisuals, robotSubs
     ctx.fillRect(0, 0, W, H);
 
     const zoom = 0.87;
-    const { px: x0, py: y0 } = metersToPixels(0, FIELD_HEIGHT_M, W, H, { x: 0, y: 0 }, zoom);
-    const { px: x1, py: y1 } = metersToPixels(FIELD_WIDTH_M, 0, W, H, { x: 0, y: 0 }, zoom);
-    const fw = x1 - x0;
-    const fh = y1 - y0;
+    const pan = { x: 0, y: 0 };
+    const layout = computeFieldLayout(W, H, pan, zoom, activeField);
+    const toPx = (x, y) => metersToPixels(x, y, W, H, pan, zoom, activeField);
 
     if (fieldImage) {
-      ctx.save();
-      const expandW = fw / (1 - 2 * FIELD_IMAGE_PADDING_X);
-      const expandH = fh / (1 - 2 * FIELD_IMAGE_PADDING_Y);
-      const imgX = x0 - expandW * FIELD_IMAGE_PADDING_X;
-      const imgY = y0 - expandH * FIELD_IMAGE_PADDING_Y;
-      ctx.translate(imgX + expandW / 2, imgY + expandH / 2);
-      ctx.rotate(Math.PI);
-      ctx.translate(-expandW / 2, expandH / 2);
-      ctx.scale(1, -1);
-      ctx.drawImage(fieldImage, 0, 0, expandW, expandH);
-      ctx.restore();
+      drawFieldImage(ctx, fieldImage, layout);
     } else {
+      const { px: x0, py: y0 } = toPx(0, heightM);
+      const { px: x1, py: y1 } = toPx(widthM, 0);
       ctx.fillStyle = '#1a3a1a';
-      ctx.fillRect(x0, y0, fw, fh);
+      ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
     }
 
     const starColors = ['#a855f7', '#f59e0b', '#10b981', '#ef4444', '#3b82f6'];
@@ -131,10 +122,10 @@ function SimCanvas({ segments, robotSettings, simTime, visibleVisuals, robotSubs
       if (!pts || pts.length === 0) return;
       
       ctx.beginPath();
-      const { px, py } = metersToPixels(pts[0].x, pts[0].y, W, H, { x: 0, y: 0 }, zoom);
+      const { px, py } = toPx(pts[0].x, pts[0].y);
       ctx.moveTo(px, py);
       for (let i = 1; i < pts.length; i++) {
-        const { px: nx, py: ny } = metersToPixels(pts[i].x, pts[i].y, W, H, { x: 0, y: 0 }, zoom);
+        const { px: nx, py: ny } = toPx(pts[i].x, pts[i].y);
         ctx.lineTo(nx, ny);
       }
       ctx.strokeStyle = isActive ? 'rgba(86,180,100,0.95)' : 'rgba(255,255,255,0.55)';
@@ -145,14 +136,14 @@ function SimCanvas({ segments, robotSettings, simTime, visibleVisuals, robotSubs
       ctx.shadowBlur = 0;
 
       const dotColor = isActive ? '#56b464' : '#ffffff';
-      const { px: startPx, py: startPy } = metersToPixels(pts[0].x, pts[0].y, W, H, { x: 0, y: 0 }, zoom);
+      const { px: startPx, py: startPy } = toPx(pts[0].x, pts[0].y);
       ctx.fillStyle = dotColor;
       ctx.beginPath();
       ctx.arc(startPx, startPy, 3, 0, Math.PI * 2);
       ctx.fill();
 
       const lastPt = pts[pts.length - 1];
-      const { px: endPx, py: endPy } = metersToPixels(lastPt.x, lastPt.y, W, H, { x: 0, y: 0 }, zoom);
+      const { px: endPx, py: endPy } = toPx(lastPt.x, lastPt.y);
       ctx.fillStyle = dotColor;
       ctx.beginPath();
       ctx.arc(endPx, endPy, 3, 0, Math.PI * 2);
@@ -163,7 +154,7 @@ function SimCanvas({ segments, robotSettings, simTime, visibleVisuals, robotSubs
       (seg.subsystemTriggers ?? []).forEach((trig, ti) => {
         const pose = getPoseAtProgress(seg.trajectory, trig.progress ?? 0);
         if (!pose) return;
-        const { px: sx, py: sy } = metersToPixels(pose.x, pose.y, W, H, { x: 0, y: 0 }, zoom);
+        const { px: sx, py: sy } = toPx(pose.x, pose.y);
         drawStar(ctx, sx, sy, 8, starColors[ti % starColors.length]);
       });
     });
@@ -197,9 +188,9 @@ function SimCanvas({ segments, robotSettings, simTime, visibleVisuals, robotSubs
     if (pose) {
       const ROBOT_W_M = robotSettings?.width ?? 0.76;
       const ROBOT_H_M = robotSettings?.length ?? 0.76;
-      const { px, py } = metersToPixels(pose.x, pose.y, W, H, { x: 0, y: 0 }, zoom);
-      const { px: rx1 } = metersToPixels(pose.x + ROBOT_W_M, pose.y, W, H, { x: 0, y: 0 }, zoom);
-      const { py: ry1 } = metersToPixels(pose.x, pose.y - ROBOT_H_M, W, H, { x: 0, y: 0 }, zoom);
+      const { px, py } = toPx(pose.x, pose.y);
+      const { px: rx1 } = toPx(pose.x + ROBOT_W_M, pose.y);
+      const { py: ry1 } = toPx(pose.x, pose.y - ROBOT_H_M);
       const rw = rx1 - px;
       const rh = ry1 - py;
       const scale = rw / ROBOT_W_M; 
@@ -311,6 +302,7 @@ function wrapAngle(degrees) {
 export default function AutoSimulator() {
   const navigate = useNavigate();
   const { id: urlId } = useParams();
+  const { widthM, heightM, imageUrl, activeField } = useFieldConfig();
   const [allChildren, setAllChildren] = useState([]);
   const [selectedChildId, setSelectedChildId] = useState(urlId ?? null);
   const [child, setChild] = useState(null);
@@ -453,8 +445,8 @@ export default function AutoSimulator() {
       
       return {
         ...p,
-        x: FIELD_WIDTH_M - p.x,
-        y: FIELD_HEIGHT_M - p.y,
+        x: widthM - p.x,
+        y: heightM - p.y,
         heading: wrapAngle(rawHeading - 180),
         rotation: wrapAngle(rawRotation - 180),
       };
@@ -577,6 +569,10 @@ export default function AutoSimulator() {
               simTime={simTime}
               visibleVisuals={resolveVisibleVisuals(displaySegments, subsystemConfigs, robotSettings?.subsystems ?? [], simTime)}
               rotationTargets={displayRotationTargets}
+              widthM={widthM}
+              heightM={heightM}
+              imageUrl={imageUrl}
+              activeField={activeField}
             />
           </div>
 

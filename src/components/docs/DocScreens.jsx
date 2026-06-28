@@ -14,6 +14,7 @@ export const DOC_IMAGES = {
   skeletonBuilder: '/docs/skeleton-builder.png',
   variantAuto: '/docs/variant-auto.png',
   robotSettings: '/docs/robot-settings.png',
+  appSettings: '/docs/app-settings.png',
   simulator: '/docs/simulator.png',
   subsystemConfig: '/docs/subsystem-config.png',
 };
@@ -26,6 +27,29 @@ export function DocScreenshot({ src, alt, caption, className = '' }) {
       </div>
       {caption && (
         <figcaption className="text-xs text-muted-foreground mt-2 text-center italic">{caption}</figcaption>
+      )}
+    </figure>
+  );
+}
+
+/** Two screenshots side by side with individual captions. */
+export function DocSplitScreens({ left, right, className = '' }) {
+  return (
+    <figure className={`my-6 ${className}`}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {[left, right].map(({ src, alt, label }) => (
+          <div key={label} className="min-w-0">
+            <div className="rounded-xl overflow-hidden border border-border shadow-lg bg-[#0d1117] ring-1 ring-white/5">
+              <img src={src} alt={alt} className="w-full h-auto block" loading="lazy" />
+            </div>
+            <p className="text-xs font-medium text-foreground mt-2 text-center">{label}</p>
+          </div>
+        ))}
+      </div>
+      {(left.caption || right.caption) && (
+        <figcaption className="text-xs text-muted-foreground mt-3 text-center italic">
+          {left.caption ?? right.caption}
+        </figcaption>
       )}
     </figure>
   );
@@ -267,7 +291,7 @@ export function OptionalParamsScreen() {
         />
       </div>
       <figcaption className="text-xs text-muted-foreground mt-2 text-center italic">
-        Optional Parameters — per-waypoint tuning on intermediate waypoints only.
+        Optional Parameters — per-waypoint tuning on mid and end waypoints (not the start point).
       </figcaption>
     </figure>
   );

@@ -4,7 +4,10 @@ import FieldCanvas from '../components/autobuilder/FieldCanvas';
 import WaypointSidebar from '../components/autobuilder/WaypointSidebar';
 import Toolbar from '../components/autobuilder/Toolbar';
 import SimulationBar from '../components/autobuilder/SimulationBar';
-import { generateTrajectory, FIELD_WIDTH_M, FIELD_HEIGHT_M } from '../lib/trajectoryMath';
+import { generateTrajectory } from '../lib/trajectoryMath';
+import { useFieldConfig } from '../context/FieldConfigContext';
+import { getDefaultPathEditorView } from '../lib/fieldCoordinates';
+import { normalizeSavedPath } from '../lib/pathWaypoints';
 import { readEntity, updateEntity } from '../lib/dataService';
 import { savePathToProject } from '../lib/projectFolder';
 
@@ -31,8 +34,7 @@ export default function AutoBuilder() {
   const [loaded, setLoaded] = useState(false);
   const [subsystemConfig, setSubsystemConfig] = useState([]);
   const savedNameRef = useRef(null);
-  const BLUE_ZOOM = 1.2;
-  const [zoom, setZoom] = useState(BLUE_ZOOM);
+  const [zoom, setZoom] = useState(1.5);
   const resetPanRef = useRef(null);
   const canvasContainerRef = useRef(null);
 
@@ -40,23 +42,19 @@ export default function AutoBuilder() {
   const stateRef = useRef({ waypoints, constraints, pathName, subsystemTriggers, rotationTargets, startSide });
   stateRef.current = { waypoints, constraints, pathName, subsystemTriggers, rotationTargets, startSide };
 
-  const getBlueViewPan = useCallback(() => {
+  const { activeField } = useFieldConfig();
+  const applyInitialView = useCallback(() => {
     const el = canvasContainerRef.current;
-    if (!el) return { x: 0, y: 0 };
-    const w = el.offsetWidth;
-    const h = el.offsetHeight;
-    const scale = Math.min(w / FIELD_WIDTH_M, h / FIELD_HEIGHT_M) * BLUE_ZOOM;
-    const focusX = 4.0 - 1.5 - 3.0 + 5.0 - 1.0 + 2.0;
-    const focusY = 2.0 + 2.5 + 0.5 - 1.0;
-    const panX = scale * (FIELD_WIDTH_M / 2 - focusX);
-    const panY = scale * (focusY - FIELD_HEIGHT_M / 2);
-    return { x: panX, y: panY };
-  }, []);
+    if (!el) return;
+    const { zoom: z, pan } = getDefaultPathEditorView(el.offsetWidth, el.offsetHeight, activeField);
+    setZoom(z);
+    resetPanRef.current?.(pan);
+  }, [activeField]);
 
   const onResetViewCallback = useCallback((fn) => {
     resetPanRef.current = fn;
-    requestAnimationFrame(() => fn(getBlueViewPan()));
-  }, [getBlueViewPan]);
+    requestAnimationFrame(() => applyInitialView());
+  }, [applyInitialView]);
 
   // Recompute trajectory leveraging unified state tracking to avoid closures collapsing
   const recomputeTrajectory = useCallback((wps, c, rots, trigs, rtgts) => {
@@ -118,8 +116,9 @@ export default function AutoBuilder() {
       const auto = autos.find(a => a.id === id)
         ?? autos.find(a => (a.name ?? '').trim().replace(/[^a-zA-Z0-9_\-]/g, '_') === id);
       if (!auto) return;
-      
-      const wps = auto.waypoints || [];
+
+      const normalized = normalizeSavedPath(auto);
+      const wps = normalized.waypoints || [];
       const savedConstraints = auto.constraints || {};
       const rots = auto.rotationTargets ?? [];
       const trigs = auto.subsystemTriggers ?? [];
@@ -154,6 +153,14 @@ export default function AutoBuilder() {
       });
     });
   }, [id, recomputeTrajectory]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    const id = requestAnimationFrame(() => {
+      applyInitialView();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [loaded, applyInitialView]);
 
   const save = useCallback(async (overrides = {}) => {
     const { waypoints: wps, constraints: c, pathName: name, subsystemTriggers: trigs, rotationTargets: rots, startSide: side } = { ...stateRef.current, ...overrides };
@@ -327,7 +334,8 @@ export default function AutoBuilder() {
     const reader = new FileReader();
     reader.onload = (ev) => {
       const data = JSON.parse(ev.target.result);
-      const rawWps = data.waypoints || [];
+      const normalized = normalizeSavedPath(data);
+      const rawWps = normalized.waypoints || [];
       const wps = rawWps.map(w => {
         if (w.anchor) {
           return { x: w.anchor.x, y: w.anchor.y, rotation: w.rotation ?? 0, prevControl: w.prevControl ?? null, nextControl: w.nextControl ?? null, params: w.params ?? {} };
@@ -421,7 +429,7 @@ export default function AutoBuilder() {
             onUpdateRotationTargets={handleRotationTargetsChange}
           />
           <button
-            onClick={() => { setZoom(BLUE_ZOOM); resetPanRef.current?.(getBlueViewPan()); }}
+            onClick={applyInitialView}
             className="absolute top-3 right-3 px-2.5 py-1 bg-card/90 border border-border text-xs text-muted-foreground hover:text-foreground rounded-lg transition-all backdrop-blur-sm"
           >
             Reset View
