@@ -8,7 +8,7 @@ const cards = [
 {
   icon: Route,
   title: 'Create a Path',
-  description: 'Visually build autonomous paths for your FRC robot. Place waypoints, adjust headings, and simulate trajectory following on the 2026 Rebuilt field.',
+  description: 'Visually build autonomous paths for your FRC robot. Place waypoints, adjust headings, and simulate trajectory following.',
   href: '/autos',
   cta: 'Open Path Builder',
   color: 'from-blue-500/20 to-cyan-500/10',
@@ -20,7 +20,7 @@ const cards = [
 {
   icon: Code2,
   title: 'Build an Auto',
-  description: 'Create skeleton autos with sequenced commands, subsystem triggers, and custom waits. Generate runnable variant autos from your templates.',
+  description: 'Create skeleton autos with commands, subsystem triggers, and custom waits. Generate runnable variant autos from your templates.',
   href: '/string-builder',
   cta: 'Open Auto Builder',
   color: 'from-violet-500/20 to-purple-500/10',
@@ -46,7 +46,7 @@ const cards = [
   title: 'Configure Subsystems',
   description: 'Define your robot subsystems, add commands for each, and bind them to visual drawings. Used throughout the auto builder.',
   href: '/subsystem-config',
-  cta: 'Configure',
+  cta: 'Open Configurator',
   color: 'from-yellow-500/20 to-orange-500/10',
   border: 'border-yellow-500/30',
   iconColor: 'text-yellow-400',
@@ -145,7 +145,7 @@ export default function Welcome() {
 
         </h1>
         <p className="text-muted-foreground text-base max-w-md mx-auto leading-relaxed">
-          Plan field paths, sequence autonomous commands, and preview your full routine on the field — built for FRC and FTC teams.
+          Plan drive paths, sequence auto commands, and preview full routines on the field (built for FRC and FTC teams).
         </p>
       </motion.div>
 
@@ -179,7 +179,7 @@ export default function Welcome() {
         transition={{ delay: 0.7 }}
         className="mt-10 flex items-center gap-4">
         
-        <p className="text-base bg-[hsl(var(--background))] text-[hsl(var(--muted-foreground))]">BrainSTEM Pilot · FRC Auto Planning Tool</p>
+        <p className="text-base bg-[hsl(var(--background))] text-[hsl(var(--muted-foreground))]">BrainSTEM Pilot · FRC/FTC Auto Building Tool</p>
         
 
         

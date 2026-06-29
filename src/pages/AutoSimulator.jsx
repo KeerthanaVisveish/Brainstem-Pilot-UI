@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { ChevronLeft, Play, Square, RotateCcw, Zap, Clock, GitBranch, ChevronDown } from 'lucide-react';
 import { generateTrajectory, getPoseAtProgress, mirrorTrajectoryFieldSide, chainPathToPose } from '../lib/trajectoryMath';
-import { metersToPixels, computeFieldLayout, drawFieldImage } from '../lib/fieldCoordinates';
+import { metersToPixels, computeFieldLayout, drawFieldImage, getDefaultSimulatorView, clampPan } from '../lib/fieldCoordinates';
 import { useFieldConfig } from '../context/FieldConfigContext';
 import { readEntity } from '../lib/dataService';
 
@@ -77,9 +77,31 @@ function drawStar(ctx, cx, cy, r, color) {
   ctx.stroke();
 }
 
-function SimCanvas({ segments, robotSettings, simTime, visibleVisuals, robotSubsystems, widthM, heightM, imageUrl, activeField }) {
+function SimCanvas({ segments, robotSettings, simTime, visibleVisuals, robotSubsystems, widthM, heightM, imageUrl, activeField, alliance }) {
   const canvasRef = useRef(null);
   const [fieldImage, setFieldImage] = useState(null);
+  const [canvasSize, setCanvasSize] = useState({ w: 0, h: 0 });
+  const [zoom, setZoom] = useState(1.5);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const panRef = useRef({ x: 0, y: 0 });
+  const viewIsDefaultRef = useRef(false);
+  const prevAllianceRef = useRef(alliance);
+
+  const getCanvasSize = useCallback(() => {
+    const c = canvasRef.current;
+    if (!c) return { w: 0, h: 0 };
+    return { w: c.width, h: c.height };
+  }, []);
+
+  const applyDefaultView = useCallback(() => {
+    const { w, h } = getCanvasSize();
+    if (!w || !h) return;
+    const view = getDefaultSimulatorView(w, h, activeField, alliance);
+    setZoom(view.zoom);
+    panRef.current = view.pan;
+    setPan(view.pan);
+    viewIsDefaultRef.current = true;
+  }, [activeField, alliance, getCanvasSize]);
 
   useEffect(() => {
     const img = new Image();
@@ -99,8 +121,6 @@ function SimCanvas({ segments, robotSettings, simTime, visibleVisuals, robotSubs
     ctx.fillStyle = '#0d1117';
     ctx.fillRect(0, 0, W, H);
 
-    const zoom = 0.87;
-    const pan = { x: 0, y: 0 };
     const layout = computeFieldLayout(W, H, pan, zoom, activeField);
     const toPx = (x, y) => metersToPixels(x, y, W, H, pan, zoom, activeField);
 
@@ -229,22 +249,87 @@ function SimCanvas({ segments, robotSettings, simTime, visibleVisuals, robotSubs
       ctx.fillStyle = '#ffffff'; ctx.fill();
       ctx.restore();
     }
-  });
+  }, [segments, simTime, visibleVisuals, robotSubsystems, robotSettings, widthM, heightM, fieldImage, activeField, canvasSize, zoom, pan]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ro = new ResizeObserver(() => {
+    const updateSize = () => {
       canvas.width = canvas.offsetWidth;
       canvas.height = canvas.offsetHeight;
-    });
+      setCanvasSize({ w: canvas.offsetWidth, h: canvas.offsetHeight });
+    };
+    const ro = new ResizeObserver(updateSize);
     ro.observe(canvas);
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
+    updateSize();
     return () => ro.disconnect();
-  }, []);
+  }, [activeField]);
 
-  return <canvas ref={canvasRef} className="w-full h-full block" style={{ background: '#0d1117' }} />;
+  const didInitialViewRef = useRef(false);
+
+  useEffect(() => {
+    if (!canvasSize.w || !canvasSize.h || didInitialViewRef.current) return;
+    applyDefaultView();
+    didInitialViewRef.current = true;
+  }, [canvasSize, applyDefaultView]);
+
+  useEffect(() => {
+    if (prevAllianceRef.current === alliance) return;
+    prevAllianceRef.current = alliance;
+    if (viewIsDefaultRef.current) applyDefaultView();
+  }, [alliance, applyDefaultView]);
+
+  const handleWheel = useCallback((e) => {
+    e.preventDefault();
+    viewIsDefaultRef.current = false;
+    const { w, h } = getCanvasSize();
+    if (!w || !h) return;
+    if (e.ctrlKey || e.metaKey) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      setZoom((z) => {
+        const factor = e.deltaY > 0 ? 0.92 : 1.08;
+        const newZoom = Math.max(0.5, Math.min(5, z * factor));
+        const scaleDelta = newZoom - z;
+        const dx = (mx - w / 2 - panRef.current.x) * (scaleDelta / z);
+        const dy = (my - h / 2 - panRef.current.y) * (scaleDelta / z);
+        const newPan = clampPan({ x: panRef.current.x - dx, y: panRef.current.y - dy }, newZoom, w, h, 0.15, activeField);
+        panRef.current = newPan;
+        setPan(newPan);
+        return newZoom;
+      });
+    } else {
+      const newPan = clampPan(
+        { x: panRef.current.x - e.deltaX, y: panRef.current.y - e.deltaY },
+        zoom,
+        w,
+        h,
+        0.15,
+        activeField,
+      );
+      panRef.current = newPan;
+      setPan(newPan);
+    }
+  }, [zoom, activeField, getCanvasSize]);
+
+  return (
+    <div className="relative w-full h-full">
+      <canvas
+        ref={canvasRef}
+        className="w-full h-full block"
+        style={{ background: '#0d1117' }}
+        onWheel={handleWheel}
+      />
+      <button
+        type="button"
+        onClick={applyDefaultView}
+        className="absolute top-3 right-3 px-2.5 py-1 bg-card/90 border border-border text-xs text-muted-foreground hover:text-foreground rounded-lg transition-all backdrop-blur-sm"
+      >
+        Reset View
+      </button>
+    </div>
+  );
 }
 
 function buildSegments(sk, ch, paths, constraints) {
@@ -573,6 +658,7 @@ export default function AutoSimulator() {
               heightM={heightM}
               imageUrl={imageUrl}
               activeField={activeField}
+              alliance={alliance}
             />
           </div>
 

@@ -22,6 +22,7 @@ export function chainPathToPose(waypoints, startPose) {
     rotation: i === 0 ? startRotation : (wp.rotation ?? 0),
     prevControl: wp.prevControl ? { x: wp.prevControl.x + dx, y: wp.prevControl.y + dy } : null,
     nextControl: wp.nextControl ? { x: wp.nextControl.x + dx, y: wp.nextControl.y + dy } : null,
+    params: wp.params ?? {},
   }));
 }
 
@@ -161,81 +162,192 @@ export function generateTrajectory(waypoints, constraints, rotationTargets = [],
     heading: getBezierTangentHeading(finalSeg.p0, finalSeg.p1, finalSeg.p2, finalSeg.p3, 1.0)
   });
 
-  // 5. Generate Trapezoidal Velocity Profile state updates
+  // 5. Plan per-waypoint speeds (minLinearSpeed is independent of passPosition)
   const maxVel = constraints.maxVel ?? 3.0;
   const maxAccel = constraints.maxAccel ?? 2.5;
+  const waypointArcLengths = computeWaypointArcLengths(segments, samplesPerSegment);
+  const waypointVelocities = planWaypointVelocities(processedWaypoints, waypointArcLengths, maxVel, maxAccel);
 
-  const accelTime = maxVel / maxAccel;
-  const accelDist = 0.5 * maxAccel * accelTime * accelTime;
-
-  let totalTime = 0;
-  if (totalLength >= accelDist * 2) {
-    const cruiseDist = totalLength - (accelDist * 2);
-    const cruiseTime = cruiseDist / maxVel;
-    totalTime = (accelTime * 2) + cruiseTime;
-  } else {
-    const peakVel = Math.sqrt(maxAccel * totalLength);
-    const splitTime = peakVel / maxAccel;
-    totalTime = splitTime * 2;
-  }
-
-  // 6. Sample profile timelines at 20ms frame markers
+  // 6. Sample each leg with its own trapezoidal profile
   const states = [];
-  const samplePeriodS = 0.02; 
-  const totalSamples = Math.ceil(totalTime / samplePeriodS);
+  const samplePeriodS = 0.02;
+  let globalTime = 0;
 
-  for (let step = 0; step <= totalSamples; step++) {
-    const currentTime = Math.min(step * samplePeriodS, totalTime);
-    let distanceCovered = 0;
-    let currentVel = 0;
+  for (let i = 0; i < segments.length; i++) {
+    const sStart = waypointArcLengths[i];
+    const sEnd = waypointArcLengths[i + 1];
+    const legLength = sEnd - sStart;
+    const v0 = waypointVelocities[i];
+    const v1 = waypointVelocities[i + 1];
+    const endParams = processedWaypoints[i + 1].params ?? {};
+    let legMaxV = maxVel;
+    if (endParams.maxLinearSpeed != null) legMaxV = Math.min(legMaxV, endParams.maxLinearSpeed);
+    legMaxV = Math.max(legMaxV, v0, v1);
 
-    if (totalLength >= accelDist * 2) {
-      const cruiseDist = totalLength - (accelDist * 2);
-      const cruiseTime = cruiseDist / maxVel;
+    const legMotion = planLegTiming(legLength, v0, v1, legMaxV, maxAccel);
+    const legSamples = Math.ceil(legMotion.totalTime / samplePeriodS);
 
-      if (currentTime < accelTime) {
-        currentVel = maxAccel * currentTime;
-        distanceCovered = 0.5 * maxAccel * currentTime * currentTime;
-      } else if (currentTime < accelTime + cruiseTime) {
-        currentVel = maxVel;
-        distanceCovered = accelDist + maxVel * (currentTime - accelTime);
-      } else {
-        const decelTimeElapsed = currentTime - accelTime - cruiseTime;
-        currentVel = maxVel - (maxAccel * decelTimeElapsed);
-        distanceCovered = accelDist + cruiseDist + (maxVel * decelTimeElapsed) - (0.5 * maxAccel * decelTimeElapsed * decelTimeElapsed);
-      }
-    } else {
-      const peakVel = Math.sqrt(maxAccel * totalLength);
-      const splitTime = peakVel / maxAccel;
+    for (let step = 0; step <= legSamples; step++) {
+      if (i > 0 && step === 0) continue;
+      const legTime = Math.min(step * samplePeriodS, legMotion.totalTime);
+      const { dist: legDist, vel } = legMotion.eval(legTime);
+      const distanceCovered = sStart + legDist;
+      const spatialPose = interpolatePoseAtDistance(pathPoints, distanceCovered);
+      const globalProgress = distanceCovered / (totalLength || 1);
+      const currentHeading = sampleLookAheadHeading(processedWaypoints[0].rotation, processedRotations, globalProgress);
 
-      if (currentTime < splitTime) {
-        currentVel = maxAccel * currentTime;
-        distanceCovered = 0.5 * maxAccel * currentTime * currentTime;
-      } else {
-        const decelTimeElapsed = currentTime - splitTime;
-        currentVel = peakVel - (maxAccel * decelTimeElapsed);
-        distanceCovered = (0.5 * maxAccel * splitTime * splitTime) + (peakVel * decelTimeElapsed) - (0.5 * maxAccel * decelTimeElapsed * decelTimeElapsed);
-      }
+      states.push({
+        time: globalTime + legTime,
+        x: spatialPose.x,
+        y: spatialPose.y,
+        velocity: vel,
+        heading: currentHeading,
+        pathHeading: spatialPose.pathHeading,
+      });
     }
-
-    const spatialPose = interpolatePoseAtDistance(pathPoints, distanceCovered);
-    const globalProgress = distanceCovered / (totalLength || 1);
-    const currentHeading = sampleLookAheadHeading(processedWaypoints[0].rotation, processedRotations, globalProgress);
-
-    states.push({
-      time: currentTime,
-      x: spatialPose.x,
-      y: spatialPose.y,
-      velocity: currentVel,
-      heading: currentHeading, 
-      pathHeading: spatialPose.pathHeading 
-    });
+    globalTime += legMotion.totalTime;
   }
+
+  const totalTime = globalTime;
 
   return {
     totalLength,
     totalTime,
     states
+  };
+}
+
+function computeWaypointArcLengths(segments, samplesPerSegment) {
+  const arcLengths = [0];
+  let cumulative = 0;
+  for (const seg of segments) {
+    let lastPt = getBezierPoint(seg.p0, seg.p1, seg.p2, seg.p3, 0);
+    for (let j = 1; j <= samplesPerSegment; j++) {
+      const pt = getBezierPoint(seg.p0, seg.p1, seg.p2, seg.p3, j / samplesPerSegment);
+      cumulative += Math.hypot(pt.x - lastPt.x, pt.y - lastPt.y);
+      lastPt = pt;
+    }
+    arcLengths.push(cumulative);
+  }
+  return arcLengths;
+}
+
+function getSegmentMaxVel(waypoints, segIndex, maxVel) {
+  const endParams = waypoints[segIndex + 1]?.params ?? {};
+  if (endParams.maxLinearSpeed != null) return Math.min(maxVel, endParams.maxLinearSpeed);
+  return maxVel;
+}
+
+function getWaypointMinSpeed(waypoints, index) {
+  const minV = waypoints[index]?.params?.minLinearSpeed;
+  return minV != null && minV > 0 ? minV : null;
+}
+
+function getEndWaypointSpeed(waypoints, maxVel) {
+  const n = waypoints.length;
+  const params = waypoints[n - 1]?.params ?? {};
+  if (params.passPosition) {
+    return getWaypointMinSpeed(waypoints, n - 1) ?? maxVel;
+  }
+  return 0;
+}
+
+/** Forward/backward pass — minLinearSpeed on interior waypoints does not require passPosition. */
+function planWaypointVelocities(waypoints, arcLengths, maxVel, maxAccel) {
+  const n = waypoints.length;
+  const velocities = new Array(n).fill(maxVel);
+  velocities[0] = 0;
+  velocities[n - 1] = getEndWaypointSpeed(waypoints, maxVel);
+
+  const enforceInteriorMinSpeeds = () => {
+    for (let i = 1; i < n - 1; i++) {
+      const minV = getWaypointMinSpeed(waypoints, i);
+      if (minV != null) velocities[i] = Math.max(velocities[i], minV);
+    }
+  };
+
+  for (let iter = 0; iter < 10; iter++) {
+    for (let i = 0; i < n - 1; i++) {
+      const ds = arcLengths[i + 1] - arcLengths[i];
+      if (ds <= 1e-9) continue;
+      const maxReach = Math.sqrt(velocities[i] ** 2 + 2 * maxAccel * ds);
+      let vNext = Math.min(velocities[i + 1], maxReach, getSegmentMaxVel(waypoints, i, maxVel));
+      const minAtNext = i + 1 < n - 1 ? getWaypointMinSpeed(waypoints, i + 1) : null;
+      if (minAtNext != null) vNext = Math.max(vNext, Math.min(minAtNext, maxReach));
+      velocities[i + 1] = vNext;
+    }
+
+    for (let i = n - 2; i >= 0; i--) {
+      const ds = arcLengths[i + 1] - arcLengths[i];
+      if (ds <= 1e-9) continue;
+      const maxApproach = Math.sqrt(velocities[i + 1] ** 2 + 2 * maxAccel * ds);
+      velocities[i] = Math.min(velocities[i], maxApproach);
+    }
+
+    velocities[0] = 0;
+    velocities[n - 1] = getEndWaypointSpeed(waypoints, maxVel);
+    enforceInteriorMinSpeeds();
+  }
+
+  return velocities;
+}
+
+/** Trapezoidal/triangular motion for one path leg with non-zero start/end speeds. */
+function planLegTiming(L, v0, v1, maxV, maxA) {
+  if (L <= 1e-9) {
+    return {
+      totalTime: 0,
+      eval: () => ({ dist: 0, vel: v0 }),
+    };
+  }
+
+  maxV = Math.max(maxV, v0, v1);
+  const dAcc = Math.max(0, (maxV * maxV - v0 * v0) / (2 * maxA));
+  const dDec = Math.max(0, (maxV * maxV - v1 * v1) / (2 * maxA));
+
+  let vPeak = maxV;
+  let tAcc;
+  let tCruise;
+  let tDec;
+  let cruiseDist = 0;
+
+  if (dAcc + dDec <= L) {
+    tAcc = (maxV - v0) / maxA;
+    tDec = (maxV - v1) / maxA;
+    cruiseDist = L - dAcc - dDec;
+    tCruise = cruiseDist / maxV;
+  } else {
+    vPeak = Math.sqrt((2 * maxA * L + v0 * v0 + v1 * v1) / 2);
+    vPeak = Math.min(vPeak, maxV);
+    tAcc = Math.max(0, (vPeak - v0) / maxA);
+    tDec = Math.max(0, (vPeak - v1) / maxA);
+    tCruise = 0;
+    cruiseDist = 0;
+  }
+
+  const totalTime = tAcc + tCruise + tDec;
+  const distAfterAcc = (vPeak * vPeak - v0 * v0) / (2 * maxA);
+
+  return {
+    totalTime,
+    eval: (t) => {
+      if (t <= 0) return { dist: 0, vel: v0 };
+      if (t >= totalTime) return { dist: L, vel: v1 };
+      if (t < tAcc) {
+        const vel = v0 + maxA * t;
+        return { dist: v0 * t + 0.5 * maxA * t * t, vel };
+      }
+      if (t < tAcc + tCruise) {
+        const tc = t - tAcc;
+        return { dist: distAfterAcc + vPeak * tc, vel: vPeak };
+      }
+      const td = t - tAcc - tCruise;
+      const vel = vPeak - maxA * td;
+      return {
+        dist: distAfterAcc + cruiseDist + vPeak * td - 0.5 * maxA * td * td,
+        vel,
+      };
+    },
   };
 }
 

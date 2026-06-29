@@ -25,14 +25,14 @@ function AngleInput({ value, onChange }) {
     <input
       type="text"
       value={text}
-      onFocus={(e) => { focused.current = true; e.target.select(); }}
+      onFocus={(e) => { focused.current = true; e.currentTarget.select(); }}
       onChange={(e) => {
         const v = e.target.value;
         // Allow anything that could be part of a valid number: digits, minus, dot
         if (v === '' || v === '-' || v === '-.' || /^-?\d*\.?\d*$/.test(v)) setText(v);
       }}
       onBlur={commit}
-      onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
       className="w-16 bg-secondary/50 border border-border rounded px-1.5 py-0.5 text-xs font-mono text-foreground focus:outline-none focus:border-primary transition-colors text-right" 
     />
   );

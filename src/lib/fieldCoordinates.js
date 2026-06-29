@@ -120,16 +120,15 @@ export const DEFAULT_PATH_EDITOR_VIEW_RECT = {
   xMax: 9.25,
 };
 
-/** Compute zoom + pan to fit {@link DEFAULT_PATH_EDITOR_VIEW_RECT} in the canvas. */
-export function getDefaultPathEditorView(canvasWidth, canvasHeight, field) {
+function getDefaultFieldView(canvasWidth, canvasHeight, field, rect, { anchor = 'start' } = {}) {
   const active = field ?? getActiveField();
-  const { heightM } = getFieldDimensions(active);
-  const rect = { ...DEFAULT_PATH_EDITOR_VIEW_RECT, yMax: heightM };
+  const { heightM, widthM } = getFieldDimensions(active);
+  const viewRect = { ...rect, yMax: heightM };
   const margin = 0.03;
   if (!canvasWidth || !canvasHeight) return { zoom: 1.5, pan: { x: 0, y: 0 } };
 
-  const { ix: ix0, iy: iy0 } = metersToImagePixels(rect.xMin, rect.yMin, active);
-  const { ix: ix1, iy: iy1 } = metersToImagePixels(rect.xMax, rect.yMax, active);
+  const { ix: ix0, iy: iy0 } = metersToImagePixels(viewRect.xMin, viewRect.yMin, active);
+  const { ix: ix1, iy: iy1 } = metersToImagePixels(viewRect.xMax, viewRect.yMax, active);
 
   const layout1 = computeFieldLayout(canvasWidth, canvasHeight, { x: 0, y: 0 }, 1, active);
   const bl1 = imagePixelsToCanvas(ix0, iy0, layout1);
@@ -147,16 +146,52 @@ export function getDefaultPathEditorView(canvasWidth, canvasHeight, field) {
   const tr = imagePixelsToCanvas(ix1, iy1, layout);
   const rectCenterY = (bl.py + tr.py) / 2;
 
-  const { ix: ixNudge } = metersToImagePixels(0.5 * FIELD_GRID_SPACING_M, 0, active);
+  const nudgeM = 0.5 * FIELD_GRID_SPACING_M;
+  const nudgeX = anchor === 'end' ? widthM - nudgeM : nudgeM;
+  const { ix: ixNudge } = metersToImagePixels(nudgeX, viewRect.yMin, active);
   const { px: pxNudge } = imagePixelsToCanvas(ixNudge, iy0, layout);
-  const panRightPx = pxNudge - bl.px;
+
+  let panX;
+  if (anchor === 'end') {
+    const br = imagePixelsToCanvas(ix1, iy0, layout);
+    panX = canvasWidth * (1 - margin) - br.px - (br.px - pxNudge);
+  } else {
+    panX = canvasWidth * margin - bl.px + (pxNudge - bl.px);
+  }
 
   const pan = {
-    x: canvasWidth * margin - bl.px + panRightPx,
+    x: panX,
     y: canvasHeight / 2 - rectCenterY,
   };
   return {
     zoom,
     pan: clampPan(pan, zoom, canvasWidth, canvasHeight, 0.02, active),
   };
+}
+
+/** Compute zoom + pan to fit {@link DEFAULT_PATH_EDITOR_VIEW_RECT} in the canvas. */
+export function getDefaultPathEditorView(canvasWidth, canvasHeight, field) {
+  return getDefaultFieldView(canvasWidth, canvasHeight, field, DEFAULT_PATH_EDITOR_VIEW_RECT);
+}
+
+/** Default simulator view rect — blue (left) or red (right) alliance side. */
+export function getSimulatorViewRect(field, alliance = 'blue') {
+  const active = field ?? getActiveField();
+  const { widthM } = getFieldDimensions(active);
+  const span = DEFAULT_PATH_EDITOR_VIEW_RECT.xMax - DEFAULT_PATH_EDITOR_VIEW_RECT.xMin;
+  if (alliance === 'red') {
+    return {
+      xMin: widthM - span,
+      yMin: DEFAULT_PATH_EDITOR_VIEW_RECT.yMin,
+      xMax: widthM,
+    };
+  }
+  return DEFAULT_PATH_EDITOR_VIEW_RECT;
+}
+
+/** Simulator default view — frames the active alliance side of the field. */
+export function getDefaultSimulatorView(canvasWidth, canvasHeight, field, alliance = 'blue') {
+  const rect = getSimulatorViewRect(field, alliance);
+  const anchor = alliance === 'red' ? 'end' : 'start';
+  return getDefaultFieldView(canvasWidth, canvasHeight, field, rect, { anchor });
 }
