@@ -1,10 +1,12 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import {
-  metersToPixels, pixelsToMeters, clampToField, clampPan,
-  computeFieldLayout, drawFieldImage,
+  fieldToPixels, pixelsToField, clampToField, clampPan,
+  computeFieldLayout, drawFieldImage, getGridSpacing,
 } from '../../lib/fieldCoordinates';
 import { getPoseAtProgress } from '../../lib/trajectoryMath';
 import { useFieldConfig } from '../../context/FieldConfigContext';
+import { useLeague } from '../../context/LeagueContext';
+import { getMotionUnitsForLeague } from '../../lib/motionUnits';
 
 function drawStar(ctx, cx, cy, r, color) {
   const spikes = 5;
@@ -50,9 +52,12 @@ export default function FieldCanvas({
   robotSettings, zoom, setZoom, onResetView,
   subsystemTriggers, subsystemConfig, rotationTargets, onUpdateRotationTargets,
 }) {
-  const { widthM, heightM, imageUrl, activeField } = useFieldConfig();
-  const ROBOT_W_M = robotSettings?.width ?? 0.76;
-  const ROBOT_H_M = robotSettings?.length ?? 0.76;
+  const { bounds, unit, imageUrl, activeField } = useFieldConfig();
+  const { projectType } = useLeague();
+  const motionUnits = getMotionUnitsForLeague(projectType);
+  const defaultRobotSize = unit === 'in' ? 18 : 0.76;
+  const ROBOT_W_M = robotSettings?.width ?? defaultRobotSize;
+  const ROBOT_H_M = robotSettings?.length ?? defaultRobotSize;
 
   const canvasRef = useRef(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -91,12 +96,12 @@ export default function FieldCanvas({
 
   const toPixel = useCallback((x, y) => {
     const { w, h } = getCanvasSize();
-    return metersToPixels(x, y, w, h, panRef.current, zoom);
+    return fieldToPixels(x, y, w, h, panRef.current, zoom);
   }, [zoom, pan]);
 
   const toMeter = useCallback((px, py) => {
     const { w, h } = getCanvasSize();
-    return pixelsToMeters(px, py, w, h, panRef.current, zoom);
+    return pixelsToField(px, py, w, h, panRef.current, zoom);
   }, [zoom, pan]);
 
   const getControlPoints = useCallback((i) => {
@@ -113,21 +118,26 @@ export default function FieldCanvas({
   // ── Draw helpers ─────────────────────────────────────────────────────────
 
   function drawGrid(ctx) {
-    const { px: x0, py: y0 } = toPixel(0, heightM);
-    const { px: x1, py: y1 } = toPixel(widthM, 0);
+    const gridSpacing = getGridSpacing(activeField);
+    const { px: x0, py: y0 } = toPixel(bounds.xMin, bounds.yMin);
+    const { px: x1, py: y1 } = toPixel(bounds.xMax, bounds.yMax);
+    const left = Math.min(x0, x1);
+    const right = Math.max(x0, x1);
+    const top = Math.min(y0, y1);
+    const bottom = Math.max(y0, y1);
     ctx.save();
     ctx.beginPath();
-    ctx.rect(x0, y0, x1 - x0, y1 - y0);
+    ctx.rect(left, top, right - left, bottom - top);
     ctx.clip();
     ctx.strokeStyle = 'rgba(100,180,255,0.08)';
     ctx.lineWidth = 1;
-    for (let x = 0; x <= widthM; x++) {
-      const { px } = toPixel(x, 0);
-      ctx.beginPath(); ctx.moveTo(px, y0); ctx.lineTo(px, y1); ctx.stroke();
+    for (let x = bounds.xMin; x <= bounds.xMax + gridSpacing * 0.01; x += gridSpacing) {
+      const { px } = toPixel(x, bounds.yMin);
+      ctx.beginPath(); ctx.moveTo(px, top); ctx.lineTo(px, bottom); ctx.stroke();
     }
-    for (let y = 0; y <= heightM; y++) {
-      const { py } = toPixel(0, y);
-      ctx.beginPath(); ctx.moveTo(x0, py); ctx.lineTo(x1, py); ctx.stroke();
+    for (let y = bounds.yMin; y <= bounds.yMax + gridSpacing * 0.01; y += gridSpacing) {
+      const { py } = toPixel(bounds.xMin, y);
+      ctx.beginPath(); ctx.moveTo(left, py); ctx.lineTo(right, py); ctx.stroke();
     }
     ctx.restore();
   }
@@ -390,11 +400,11 @@ export default function FieldCanvas({
     ctx.font = 'bold 10px Inter';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    const accDisplay = Math.max(-20, Math.min(20, acc));
+    const accDisplay = Math.max(-motionUnits.constraintMax, Math.min(motionUnits.constraintMax, acc));
     ctx.fillStyle = '#32c8ff';
-    ctx.fillText(`v: ${vel.toFixed(2)} m/s`, boxX + padding, boxY + padding);
+    ctx.fillText(`v: ${vel.toFixed(2)} ${motionUnits.speedUnit}`, boxX + padding, boxY + padding);
     ctx.fillStyle = '#ffdd33';
-    ctx.fillText(`a: ${accDisplay.toFixed(2)} m/s²`, boxX + padding, boxY + padding + lineH + 2);
+    ctx.fillText(`a: ${accDisplay.toFixed(2)} ${motionUnits.accelUnit}`, boxX + padding, boxY + padding + lineH + 2);
   }
 
   // ── Draw loop ─────────────────────────────────────────────────────────────
@@ -413,10 +423,10 @@ export default function FieldCanvas({
     if (fieldImage) {
       drawFieldImage(ctx, fieldImage, layout);
     } else {
-      const { px: x0, py: y0 } = toPixel(0, heightM);
-      const { px: x1, py: y1 } = toPixel(widthM, 0);
+      const { px: x0, py: y0 } = toPixel(bounds.xMin, bounds.yMin);
+      const { px: x1, py: y1 } = toPixel(bounds.xMax, bounds.yMax);
       ctx.fillStyle = '#1a3a1a';
-      ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+      ctx.fillRect(Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0));
     }
 
     drawGrid(ctx);
@@ -482,8 +492,8 @@ export default function FieldCanvas({
       const isLast = i === waypoints.length - 1;
 
       if (isFirst || isLast) {
-        const { px: rx1 } = metersToPixels(wp.x + ROBOT_W_M, wp.y, w, h, panRef.current, zoom);
-        const { py: ry1 } = metersToPixels(wp.x, wp.y - ROBOT_H_M, w, h, panRef.current, zoom);
+        const { px: rx1 } = fieldToPixels(wp.x + ROBOT_W_M, wp.y, w, h, panRef.current, zoom);
+        const { py: ry1 } = fieldToPixels(wp.x, wp.y - ROBOT_H_M, w, h, panRef.current, zoom);
         const rw = (rx1 - cx) / 2 + 4 * s;
         const rh = (ry1 - cy) / 2 + 4 * s;
         const rad = (-(wp.rotation ?? 0) * Math.PI) / 180;

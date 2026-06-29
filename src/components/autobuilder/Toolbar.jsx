@@ -4,7 +4,7 @@ import { MousePointer2, Plus, Eye, EyeOff, Trash2, ChevronLeft } from 'lucide-re
 export default function Toolbar({
   tool, setTool, showVelocity, setShowVelocity,
   pathName, setPathName, onClear, waypointCount, onBack,
-  startSide, onStartSideChange,
+  startSide, onStartSideChange, showStartSide = true,
 }) {
 
   const tools = [
@@ -32,27 +32,31 @@ export default function Toolbar({
 
       <div className="w-px h-5 bg-border" />
 
-      <div className="flex items-center gap-1.5 shrink-0">
-        <span className="text-[10px] text-muted-foreground font-medium hidden sm:inline">Start</span>
-        <div className="flex gap-0.5 bg-secondary/50 rounded-lg p-0.5">
-          {['L', 'R'].map((side) => (
-            <button
-              key={side}
-              title={side === 'L' ? 'Path created for left side of field (metadata only)' : 'Path created for right side of field (metadata only)'}
-              onClick={() => onStartSideChange?.(side)}
-              className={`px-2 py-0.5 rounded text-xs font-bold transition-all ${
-                startSide === side
-                  ? 'bg-primary text-primary-foreground shadow'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-              }`}
-            >
-              {side}
-            </button>
-          ))}
-        </div>
-      </div>
+      {showStartSide && (
+        <>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-[10px] text-muted-foreground font-medium hidden sm:inline">Start</span>
+            <div className="flex gap-0.5 bg-secondary/50 rounded-lg p-0.5">
+              {['L', 'R'].map((side) => (
+                <button
+                  key={side}
+                  title={side === 'L' ? 'Path created for left side of field (metadata only)' : 'Path created for right side of field (metadata only)'}
+                  onClick={() => onStartSideChange?.(side)}
+                  className={`px-2 py-0.5 rounded text-xs font-bold transition-all ${
+                    startSide === side
+                      ? 'bg-primary text-primary-foreground shadow'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+                  }`}
+                >
+                  {side}
+                </button>
+              ))}
+            </div>
+          </div>
 
-      <div className="w-px h-5 bg-border" />
+          <div className="w-px h-5 bg-border" />
+        </>
+      )}
 
       {/* Tool buttons */}
       <div className="flex items-center gap-1 bg-secondary/50 rounded-lg p-1">

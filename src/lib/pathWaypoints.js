@@ -34,6 +34,26 @@ export function normalizeSavedPaths(paths) {
   return paths.map(normalizeSavedPath);
 }
 
+/** Metadata added to exported path JSON for league-specific consumers. */
+export function getPathExportMetadata(projectType) {
+  if (projectType === 'ftc') {
+    return {
+      coordinateSystem: 'pedro-center',
+      units: 'in',
+      headingUnit: 'deg',
+      speedUnit: 'in/s',
+      accelUnit: 'in/s²',
+    };
+  }
+  return {
+    coordinateSystem: 'frc-bottom-left',
+    units: 'm',
+    headingUnit: 'deg',
+    speedUnit: 'm/s',
+    accelUnit: 'm/s²',
+  };
+}
+
 /** Format a waypoint for JSON export — params live on the waypoint, not by index. */
 export function formatWaypointForExport(w, i, total, fmt4) {
   const wp = {

@@ -3,16 +3,17 @@ import fieldsCatalog from '../fields/fields.json';
 const DEFAULT_WIDTH_M = 16.541;
 const DEFAULT_HEIGHT_M = 8.211;
 
-export function getFieldsCatalog() {
-  return fieldsCatalog.fields ?? [];
+export function getFieldsCatalog(league) {
+  const fields = fieldsCatalog.fields ?? [];
+  if (!league) return fields;
+  return fields.filter(f => (f.league ?? 'frc') === league);
 }
 
-export function resolveField(fieldId) {
+export function resolveField(fieldId, league) {
   const fields = fieldsCatalog.fields ?? [];
   const found = fields.find(f => f.id === fieldId);
-  if (found) return found;
-  const fallbackId = fieldsCatalog.defaultFieldId;
-  return fields.find(f => f.id === fallbackId) ?? fields[0] ?? null;
+  if (found && (!league || (found.league ?? 'frc') === league)) return found;
+  return fields.find(f => f.id === getDefaultFieldId(league)) ?? fields[0] ?? null;
 }
 
 let activeField = resolveField(fieldsCatalog.defaultFieldId);
@@ -21,20 +22,39 @@ export function getActiveField() {
   return activeField;
 }
 
-export function setActiveField(fieldId) {
-  activeField = resolveField(fieldId);
+export function setActiveField(fieldId, league) {
+  activeField = resolveField(fieldId, league);
   return activeField;
 }
 
+export function getFieldBounds(field = activeField) {
+  if (field?.originMode === 'center') {
+    const hx = field.halfExtentX ?? (field.width ?? 144) / 2;
+    const hy = field.halfExtentY ?? (field.height ?? 144) / 2;
+    return { xMin: -hx, xMax: hx, yMin: -hy, yMax: hy, unit: field.unit ?? 'in' };
+  }
+  const widthM = field?.widthM ?? DEFAULT_WIDTH_M;
+  const heightM = field?.heightM ?? DEFAULT_HEIGHT_M;
+  return { xMin: 0, xMax: widthM, yMin: 0, yMax: heightM, unit: field?.unit ?? 'm' };
+}
+
 export function getFieldDimensions(field = activeField) {
+  const bounds = getFieldBounds(field);
   return {
-    widthM: field?.widthM ?? DEFAULT_WIDTH_M,
-    heightM: field?.heightM ?? DEFAULT_HEIGHT_M,
+    widthM: bounds.xMax - bounds.xMin,
+    heightM: bounds.yMax - bounds.yMin,
+    width: bounds.xMax - bounds.xMin,
+    height: bounds.yMax - bounds.yMin,
+    unit: bounds.unit,
+    bounds,
+    originMode: field?.originMode ?? 'bottomLeft',
+    halfExtentX: field?.halfExtentX,
+    halfExtentY: field?.halfExtentY,
   };
 }
 
 export function getFieldImageUrl(field = activeField) {
-  if (!field) return '/fields/rebuilt_2026.png';
+  if (!field) return '/fields/frc/rebuilt_2026.png';
   if (field.imageUrl) return field.imageUrl;
   return `/fields/${field.imageFile}`;
 }
@@ -58,6 +78,7 @@ export function computeFieldPadding(field = activeField) {
   };
 }
 
-export function getDefaultFieldId() {
+export function getDefaultFieldId(league) {
+  if (league === 'ftc') return fieldsCatalog.defaultFtcFieldId ?? 'decode_2026';
   return fieldsCatalog.defaultFieldId;
 }

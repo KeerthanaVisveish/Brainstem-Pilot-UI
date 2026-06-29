@@ -3,8 +3,10 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { ChevronLeft, Play, Square, RotateCcw, Zap, Clock, GitBranch, ChevronDown } from 'lucide-react';
 import { generateTrajectory, getPoseAtProgress, mirrorTrajectoryFieldSide, chainPathToPose } from '../lib/trajectoryMath';
-import { metersToPixels, computeFieldLayout, drawFieldImage, getDefaultSimulatorView, clampPan } from '../lib/fieldCoordinates';
+import { fieldToPixels, computeFieldLayout, drawFieldImage, getDefaultSimulatorView, clampPan } from '../lib/fieldCoordinates';
 import { useFieldConfig } from '../context/FieldConfigContext';
+import { useLeague } from '../context/LeagueContext';
+import { getMotionUnitsForLeague } from '../lib/motionUnits';
 import { readEntity } from '../lib/dataService';
 
 // Resolve which visual bindings (subsystem names) are currently "shown" at a given simTime
@@ -57,8 +59,6 @@ function resolveVisibleVisuals(segments, subsystemConfigs, robotSubsystems, simT
   return visibilityMap;
 }
 
-const FIELD_ASPECT = 16.541 / 8.211;
-
 function drawStar(ctx, cx, cy, r, color) {
   const spikes = 5;
   ctx.beginPath();
@@ -77,7 +77,7 @@ function drawStar(ctx, cx, cy, r, color) {
   ctx.stroke();
 }
 
-function SimCanvas({ segments, robotSettings, simTime, visibleVisuals, robotSubsystems, widthM, heightM, imageUrl, activeField, alliance }) {
+function SimCanvas({ segments, robotSettings, simTime, visibleVisuals, robotSubsystems, bounds, imageUrl, activeField, alliance }) {
   const canvasRef = useRef(null);
   const [fieldImage, setFieldImage] = useState(null);
   const [canvasSize, setCanvasSize] = useState({ w: 0, h: 0 });
@@ -122,15 +122,15 @@ function SimCanvas({ segments, robotSettings, simTime, visibleVisuals, robotSubs
     ctx.fillRect(0, 0, W, H);
 
     const layout = computeFieldLayout(W, H, pan, zoom, activeField);
-    const toPx = (x, y) => metersToPixels(x, y, W, H, pan, zoom, activeField);
+    const toPx = (x, y) => fieldToPixels(x, y, W, H, pan, zoom, activeField);
 
     if (fieldImage) {
       drawFieldImage(ctx, fieldImage, layout);
     } else {
-      const { px: x0, py: y0 } = toPx(0, heightM);
-      const { px: x1, py: y1 } = toPx(widthM, 0);
+      const { px: x0, py: y0 } = toPx(bounds.xMin, bounds.yMin);
+      const { px: x1, py: y1 } = toPx(bounds.xMax, bounds.yMax);
       ctx.fillStyle = '#1a3a1a';
-      ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+      ctx.fillRect(Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0));
     }
 
     const starColors = ['#a855f7', '#f59e0b', '#10b981', '#ef4444', '#3b82f6'];
@@ -206,8 +206,9 @@ function SimCanvas({ segments, robotSettings, simTime, visibleVisuals, robotSubs
     const pose = currentPose ?? lastPoseRef.current;
 
     if (pose) {
-      const ROBOT_W_M = robotSettings?.width ?? 0.76;
-      const ROBOT_H_M = robotSettings?.length ?? 0.76;
+      const defaultRobotSize = activeField?.league === 'ftc' ? 18 : 0.76;
+      const ROBOT_W_M = robotSettings?.width ?? defaultRobotSize;
+      const ROBOT_H_M = robotSettings?.length ?? defaultRobotSize;
       const { px, py } = toPx(pose.x, pose.y);
       const { px: rx1 } = toPx(pose.x + ROBOT_W_M, pose.y);
       const { py: ry1 } = toPx(pose.x, pose.y - ROBOT_H_M);
@@ -249,7 +250,7 @@ function SimCanvas({ segments, robotSettings, simTime, visibleVisuals, robotSubs
       ctx.fillStyle = '#ffffff'; ctx.fill();
       ctx.restore();
     }
-  }, [segments, simTime, visibleVisuals, robotSubsystems, robotSettings, widthM, heightM, fieldImage, activeField, canvasSize, zoom, pan]);
+  }, [segments, simTime, visibleVisuals, robotSubsystems, robotSettings, bounds, fieldImage, activeField, canvasSize, zoom, pan]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -387,7 +388,8 @@ function wrapAngle(degrees) {
 export default function AutoSimulator() {
   const navigate = useNavigate();
   const { id: urlId } = useParams();
-  const { widthM, heightM, imageUrl, activeField } = useFieldConfig();
+  const { bounds, imageUrl, activeField } = useFieldConfig();
+  const { isFrc, projectType } = useLeague();
   const [allChildren, setAllChildren] = useState([]);
   const [selectedChildId, setSelectedChildId] = useState(urlId ?? null);
   const [child, setChild] = useState(null);
@@ -465,9 +467,10 @@ export default function AutoSimulator() {
       setChild(ch);
       const sk = skList.find(s => s.id === ch.skeletonId);
       const rsettings = rsList[0];
+      const motionDefaults = getMotionUnitsForLeague(projectType).defaultConstraints;
       const constraints = {
-        maxVel: rsettings?.maxVel ?? 3.0,
-        maxAccel: rsettings?.maxAccel ?? 2.5,
+        maxVel: rsettings?.maxVel ?? motionDefaults.maxVel,
+        maxAccel: rsettings?.maxAccel ?? motionDefaults.maxAccel,
       };
       const segs = buildSegments(sk, ch, pathList, constraints);
       setSegments(segs);
@@ -481,7 +484,7 @@ export default function AutoSimulator() {
         return path?.rotationTargets ?? [];
       }));
     });
-  }, [selectedChildId, stop]);
+  }, [selectedChildId, stop, projectType]);
 
   useEffect(() => {
     if (!isPlaying) return;
@@ -516,22 +519,23 @@ export default function AutoSimulator() {
     if (!seg.trajectory) return seg;
 
     let traj = seg.trajectory;
-    if (fieldSide !== (seg.startSide ?? 'R')) {
+    if (isFrc && fieldSide !== (seg.startSide ?? 'R')) {
       traj = mirrorTrajectoryFieldSide(traj);
     }
 
-    if (alliance === 'blue') {
+    if (!isFrc || alliance === 'blue') {
       return { ...seg, trajectory: traj };
     }
 
+    const { xMax, yMax } = bounds;
     const transformPointForRed = (p) => {
       const rawHeading = p.heading ?? p.rotation ?? 0;
       const rawRotation = p.rotation ?? p.heading ?? 0;
       
       return {
         ...p,
-        x: widthM - p.x,
-        y: heightM - p.y,
+        x: xMax - p.x,
+        y: yMax - p.y,
         heading: wrapAngle(rawHeading - 180),
         rotation: wrapAngle(rawRotation - 180),
       };
@@ -547,11 +551,11 @@ export default function AutoSimulator() {
     };
   });
 
-  const displayRotationTargets = alliance === 'blue' 
-    ? (rotationTargets ?? []) 
+  const displayRotationTargets = !isFrc || alliance === 'blue'
+    ? (rotationTargets ?? [])
     : (rotationTargets ?? []).map(t => ({
         ...t,
-        rotation: wrapAngle(t.rotation - 180),    // Flip across vertical axis threshold
+        rotation: wrapAngle(t.rotation - 180),
       }));
 
   if (allChildren.length === 0) {
@@ -595,50 +599,54 @@ export default function AutoSimulator() {
             </select>
             <ChevronDown className="w-3.5 h-3.5 text-muted-foreground absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
-          <div className="flex gap-1 bg-secondary/50 rounded-lg p-1">
-            <button
-              onClick={() => setFieldSide('L')}
-              className={`px-2.5 py-0.5 rounded text-xs font-semibold transition-all ${
-                fieldSide === 'L'
-                  ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              Left
-            </button>
-            <button
-              onClick={() => setFieldSide('R')}
-              className={`px-2.5 py-0.5 rounded text-xs font-semibold transition-all ${
-                fieldSide === 'R'
-                  ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              Right
-            </button>
-          </div>
-          <div className="flex gap-1 bg-secondary/50 rounded-lg p-1">
-            <button
-              onClick={() => setAlliance('blue')}
-              className={`px-2.5 py-0.5 rounded text-xs font-semibold transition-all ${
-                alliance === 'blue'
-                  ? 'bg-blue-500/20 text-blue-400 border border-blue-500/40'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              Blue
-            </button>
-            <button
-              onClick={() => setAlliance('red')}
-              className={`px-2.5 py-0.5 rounded text-xs font-semibold transition-all ${
-                alliance === 'red'
-                  ? 'bg-red-500/20 text-red-400 border border-red-500/40'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              Red
-            </button>
-          </div>
+          {isFrc && (
+            <>
+              <div className="flex gap-1 bg-secondary/50 rounded-lg p-1">
+                <button
+                  onClick={() => setFieldSide('L')}
+                  className={`px-2.5 py-0.5 rounded text-xs font-semibold transition-all ${
+                    fieldSide === 'L'
+                      ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Left
+                </button>
+                <button
+                  onClick={() => setFieldSide('R')}
+                  className={`px-2.5 py-0.5 rounded text-xs font-semibold transition-all ${
+                    fieldSide === 'R'
+                      ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Right
+                </button>
+              </div>
+              <div className="flex gap-1 bg-secondary/50 rounded-lg p-1">
+                <button
+                  onClick={() => setAlliance('blue')}
+                  className={`px-2.5 py-0.5 rounded text-xs font-semibold transition-all ${
+                    alliance === 'blue'
+                      ? 'bg-blue-500/20 text-blue-400 border border-blue-500/40'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Blue
+                </button>
+                <button
+                  onClick={() => setAlliance('red')}
+                  className={`px-2.5 py-0.5 rounded text-xs font-semibold transition-all ${
+                    alliance === 'red'
+                      ? 'bg-red-500/20 text-red-400 border border-red-500/40'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Red
+                </button>
+              </div>
+            </>
+          )}
         </div>
         <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/10 text-green-400 font-medium">Simulation</span>
       </div>
@@ -654,8 +662,7 @@ export default function AutoSimulator() {
               simTime={simTime}
               visibleVisuals={resolveVisibleVisuals(displaySegments, subsystemConfigs, robotSettings?.subsystems ?? [], simTime)}
               rotationTargets={displayRotationTargets}
-              widthM={widthM}
-              heightM={heightM}
+              bounds={bounds}
               imageUrl={imageUrl}
               activeField={activeField}
               alliance={alliance}

@@ -6,7 +6,9 @@ import Toolbar from '../components/autobuilder/Toolbar';
 import SimulationBar from '../components/autobuilder/SimulationBar';
 import { generateTrajectory } from '../lib/trajectoryMath';
 import { useFieldConfig } from '../context/FieldConfigContext';
+import { useLeague } from '../context/LeagueContext';
 import { getDefaultPathEditorView } from '../lib/fieldCoordinates';
+import { getMotionUnitsForLeague } from '../lib/motionUnits';
 import { normalizeSavedPath } from '../lib/pathWaypoints';
 import { readEntity, updateEntity } from '../lib/dataService';
 import { savePathToProject } from '../lib/projectFolder';
@@ -20,7 +22,10 @@ export default function AutoBuilder() {
   const [waypoints, setWaypoints] = useState([]);
   const [selectedIndex, setSelectedIndex] = useState(null);
   const [tool, setTool] = useState('select');
-  const [constraints, setConstraints] = useState({ maxVel: 3.0, maxAccel: 2.5 });
+  const { activeField } = useFieldConfig();
+  const { projectType, isFrc } = useLeague();
+  const motionUnits = getMotionUnitsForLeague(projectType);
+  const [constraints, setConstraints] = useState(motionUnits.defaultConstraints);
   const customizedConstraintsRef = useRef({ maxVel: false, maxAccel: false });
   const [showVelocity, setShowVelocity] = useState(false);
   const [robotSettings, setRobotSettings] = useState(null);
@@ -42,7 +47,6 @@ export default function AutoBuilder() {
   const stateRef = useRef({ waypoints, constraints, pathName, subsystemTriggers, rotationTargets, startSide });
   stateRef.current = { waypoints, constraints, pathName, subsystemTriggers, rotationTargets, startSide };
 
-  const { activeField } = useFieldConfig();
   const applyInitialView = useCallback(() => {
     const el = canvasContainerRef.current;
     if (!el) return;
@@ -125,8 +129,8 @@ export default function AutoBuilder() {
 
       readEntity('RobotSettings').then(rList => {
         const rs = Array.isArray(rList) && rList.length > 0 ? rList[0] : null;
-        const defaultVel = rs?.maxVel ?? 3.0;
-        const defaultAccel = rs?.maxAccel ?? 2.5;
+        const defaultVel = rs?.maxVel ?? motionUnits.defaultConstraints.maxVel;
+        const defaultAccel = rs?.maxAccel ?? motionUnits.defaultConstraints.maxAccel;
         customizedConstraintsRef.current = {
           maxVel: savedConstraints.maxVel != null && savedConstraints.maxVel !== defaultVel,
           maxAccel: savedConstraints.maxAccel != null && savedConstraints.maxAccel !== defaultAccel,
@@ -403,6 +407,7 @@ export default function AutoBuilder() {
         onBack={handleBack}
         startSide={startSide}
         onStartSideChange={handleStartSideChange}
+        showStartSide={isFrc}
       />
 
       <div className="flex flex-1 overflow-hidden">

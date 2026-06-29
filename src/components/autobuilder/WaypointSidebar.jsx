@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Trash2, Navigation, MapPin, ChevronDown, ChevronUp, Zap, Plus, RotateCcw, Sparkles, PlusCircle } from 'lucide-react';
 import { readEntity } from '@/lib/dataService';
+import { useFieldConfig } from '../../context/FieldConfigContext';
+import { useLeague } from '../../context/LeagueContext';
+import { getMotionUnitsForLeague } from '../../lib/motionUnits';
 
 // Angle input that allows typing a negative sign without stomping the value
 function AngleInput({ value, onChange }) {
@@ -58,17 +61,9 @@ function NumberInput({ label, value, onChange, step = 0.01, min, max, unit }) {
   );
 }
 
-const OPTIONAL_PARAMS = [
-  { key: 'distTol', label: 'Distance Tolerance', unit: 'm', default: 0.1, step: 0.001, min: 0 },
-  { key: 'headingTol', label: 'Heading Tolerance', unit: '°', default: 3.0, step: 0.1, min: 0 },
-  { key: 'minLinearSpeed', label: 'Min Linear Speed', unit: 'm/s', default: 0, step: 0.1, min: 0, max: 20 },
-  { key: 'maxLinearSpeed', label: 'Max Linear Speed', unit: 'm/s', default: 1, step: 0.1, min: 0, max: 20 },
-  { key: 'maxTurnPower', label: 'Max Turn Power', unit: '%', default: 1, step: 0.01, min: 0, max: 1 },
-  { key: 'maxTime', label: 'Max Time', unit: 's', default: 10, step: 0.1, min: 0 },
-  { key: 'passPosition', label: 'Pass Position', unit: '', default: false, type: 'bool' }
-];
+const OPTIONAL_PARAMS_FRC = getMotionUnitsForLeague('frc').optionalParams;
 
-export function OptionalParamsSection({ wp, onUpdate, initialOpen = false }) {
+export function OptionalParamsSection({ wp, onUpdate, initialOpen = false, optionalParams = OPTIONAL_PARAMS_FRC }) {
   const [open, setOpen] = useState(initialOpen);
   const params = wp.params ?? {};
 
@@ -91,7 +86,7 @@ export function OptionalParamsSection({ wp, onUpdate, initialOpen = false }) {
       </button>
       {open &&
         <div className="space-y-1">
-          {OPTIONAL_PARAMS.map((p) => {
+          {optionalParams.map((p) => {
             const active = params[p.key] !== undefined;
             return (
               <div key={p.key} className="flex items-center gap-2">
@@ -183,7 +178,7 @@ function RotationTargetsSection({ targets, onUpdate, onUpdateProgressOnly, total
   );
 }
 
-function SubsystemTriggersSection({ triggers, onUpdate, totalLength, initialOpen = false }) {
+function SubsystemTriggersSection({ triggers, onUpdate, totalLength, lengthUnit = 'm', initialOpen = false }) {
   const [open, setOpen] = useState(initialOpen);
   const [subsystems, setSubsystems] = useState([]);
 
@@ -225,7 +220,7 @@ function SubsystemTriggersSection({ triggers, onUpdate, totalLength, initialOpen
                 <div className="flex items-center gap-1">
                   <span className="text-[10px] text-violet-400 font-semibold">
                     @ {Math.round((trig.progress ?? 0) * 100)}%
-                    {trig.arcLengthM > 0 && ` (${trig.arcLengthM.toFixed(2)}m)`}
+                    {trig.arcLengthM > 0 && ` (${trig.arcLengthM.toFixed(2)}${lengthUnit})`}
                   </span>
                   <input type="range" min={0} max={1} step={0.01} value={trig.progress ?? 0}
                     onChange={(e) => updateProgress(i, parseFloat(e.target.value))}
@@ -270,6 +265,10 @@ export default function WaypointSidebar({
   optionalParamsInitialOpen = false,
 }) {
   const selected = selectedIndex !== null ? waypoints[selectedIndex] : null;
+  const { bounds, unit } = useFieldConfig();
+  const { projectType } = useLeague();
+  const motionUnits = getMotionUnitsForLeague(projectType);
+  const posStep = unit === 'in' ? 1 : 0.1;
   const [sidebarWidth, setSidebarWidth] = React.useState(256);
   const resizing = React.useRef(false);
 
@@ -297,7 +296,7 @@ export default function WaypointSidebar({
         <div className="px-4 py-2.5 border-b border-border shrink-0 flex items-center justify-around">
           <div className="flex flex-col items-center">
             <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Distance</span>
-            <span className="text-lg font-bold font-mono text-foreground leading-tight">{trajectory.totalLength.toFixed(2)}<span className="text-xs font-semibold text-muted-foreground ml-0.5">m</span></span>
+            <span className="text-lg font-bold font-mono text-foreground leading-tight">{trajectory.totalLength.toFixed(2)}<span className="text-xs font-semibold text-muted-foreground ml-0.5">{motionUnits.lengthUnit}</span></span>
           </div>
           <div className="w-px h-8 bg-border" />
           <div className="flex flex-col items-center">
@@ -327,8 +326,8 @@ export default function WaypointSidebar({
           </div>
           {selected ?
             <div className="space-y-3">
-              <NumberInput label="X Position" value={selected.x} onChange={(v) => onUpdate(selectedIndex, { x: v })} step={0.1} min={0} max={16.54} unit="m" />
-              <NumberInput label="Y Position" value={selected.y} onChange={(v) => onUpdate(selectedIndex, { y: v })} step={0.1} min={0} max={8.02} unit="m" />
+              <NumberInput label="X Position" value={selected.x} onChange={(v) => onUpdate(selectedIndex, { x: v })} step={posStep} min={bounds.xMin} max={bounds.xMax} unit={unit} />
+              <NumberInput label="Y Position" value={selected.y} onChange={(v) => onUpdate(selectedIndex, { y: v })} step={posStep} min={bounds.yMin} max={bounds.yMax} unit={unit} />
               {onInsertAfter && selectedIndex < waypoints.length - 1 &&
                 <button onClick={() => onInsertAfter(selectedIndex)}
                   className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-primary/10 border border-primary/30 text-primary rounded-md text-xs font-medium hover:bg-primary/20 transition-all">
@@ -349,7 +348,7 @@ export default function WaypointSidebar({
                 </div>
               )}
               {selectedIndex !== 0 && (
-                <OptionalParamsSection wp={selected} onUpdate={(updates) => onUpdate(selectedIndex, updates)} initialOpen={optionalParamsInitialOpen} />
+                <OptionalParamsSection wp={selected} onUpdate={(updates) => onUpdate(selectedIndex, updates)} initialOpen={optionalParamsInitialOpen} optionalParams={motionUnits.optionalParams} />
               )}
             </div> :
             <p className="text-xs text-muted-foreground">
@@ -378,6 +377,7 @@ export default function WaypointSidebar({
               triggers={subsystemTriggers ?? []} 
               onUpdate={onUpdateTriggers} 
               totalLength={trajectory?.totalLength ?? 0}
+              lengthUnit={motionUnits.lengthUnit}
               initialOpen={subsystemTriggersInitialOpen}
             />
           </div>
@@ -392,8 +392,8 @@ export default function WaypointSidebar({
             <h3 className="text-xs font-semibold text-foreground uppercase tracking-wider">Constraints</h3>
           </div>
           <div className="space-y-3">
-            <NumberInput label="Max Velocity" value={constraints.maxVel} onChange={(v) => setConstraints((c) => ({ ...c, maxVel: Math.min(20, Math.max(0.1, v)) }))} step={0.1} min={0.1} max={20} unit="m/s" />
-            <NumberInput label="Max Acceleration" value={constraints.maxAccel} onChange={(v) => setConstraints((c) => ({ ...c, maxAccel: Math.min(20, Math.max(0.1, v)) }))} step={0.1} min={0.1} max={20} unit="m/s²" />
+            <NumberInput label="Max Velocity" value={constraints.maxVel} onChange={(v) => setConstraints((c) => ({ ...c, maxVel: Math.min(motionUnits.constraintMax, Math.max(motionUnits.constraintMin, v)) }))} step={motionUnits.constraintStep} min={motionUnits.constraintMin} max={motionUnits.constraintMax} unit={motionUnits.speedUnit} />
+            <NumberInput label="Max Acceleration" value={constraints.maxAccel} onChange={(v) => setConstraints((c) => ({ ...c, maxAccel: Math.min(motionUnits.constraintMax, Math.max(motionUnits.constraintMin, v)) }))} step={motionUnits.constraintStep} min={motionUnits.constraintMin} max={motionUnits.constraintMax} unit={motionUnits.accelUnit} />
           </div>
         </div>
 

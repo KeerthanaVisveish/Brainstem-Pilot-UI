@@ -3,12 +3,13 @@ import { Link } from 'react-router-dom';
 import { Route, Code2, ChevronRight, Zap, Settings2, Play, Cpu, FolderOpen, FolderCheck, BookOpen } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { getProjectDir, setProjectDir, hasProjectDir, initializeProjectFolder } from '../lib/projectFolder';
+import { useLeague } from '../context/LeagueContext';
 
 const cards = [
 {
   icon: Route,
   title: 'Create a Path',
-  description: 'Visually build autonomous paths for your FRC robot. Place waypoints, adjust headings, and simulate trajectory following.',
+  description: 'Visually build autonomous paths for your robot. Place waypoints, adjust headings, and simulate trajectory following.',
   href: '/autos',
   cta: 'Open Path Builder',
   color: 'from-blue-500/20 to-cyan-500/10',
@@ -56,8 +57,51 @@ const cards = [
 ];
 
 
+function LeagueToggle({ projectType, setProjectType, canChangeLeague, projectName }) {
+  const leagues = [
+    { id: 'frc', label: 'FRC' },
+    { id: 'ftc', label: 'FTC' },
+  ];
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <div
+        className={`flex gap-0.5 rounded-lg p-0.5 border ${
+          canChangeLeague
+            ? 'bg-secondary/80 border-border'
+            : 'bg-secondary/40 border-border/60 opacity-60 pointer-events-none'
+        }`}
+        title={canChangeLeague ? 'Select league for your next project' : 'League is locked while a project folder is open'}
+      >
+        {leagues.map(({ id, label }) => (
+          <button
+            key={id}
+            type="button"
+            disabled={!canChangeLeague}
+            onClick={() => setProjectType(id)}
+            className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${
+              projectType === id
+                ? 'bg-primary text-primary-foreground shadow'
+                : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {!canChangeLeague && projectName && (
+        <span className="text-[10px] text-muted-foreground">
+          {projectType.toUpperCase()} · {projectName}
+        </span>
+      )}
+    </div>
+  );
+}
+
+
 export default function Welcome() {
   const [projectName, setProjectName] = useState(null);
+  const { projectType, setProjectType, canChangeLeague, loadLeagueFromProject } = useLeague();
 
   useEffect(() => {
     if (hasProjectDir()) setProjectName(getProjectDir().name);
@@ -72,9 +116,8 @@ export default function Welcome() {
       const dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
       setProjectDir(dirHandle);
       setProjectName(dirHandle.name);
-      // Initialize default settings and subsystem config if not present
-      await initializeProjectFolder();
-      // Store folder name for potential restoration
+      await initializeProjectFolder(projectType);
+      await loadLeagueFromProject();
       try {
         localStorage.setItem('lastProjectFolder', dirHandle.name);
       } catch (e) {
@@ -102,18 +145,26 @@ export default function Welcome() {
           Settings
         </Link>
       </div>
-      {/* Open project top-right */}
-      <button
-        onClick={openProject}
-        className={`absolute top-4 right-4 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all z-10 border ${
-          projectName
-            ? 'bg-green-500/10 border-green-500/30 text-green-400 hover:bg-green-500/20'
-            : 'bg-secondary border-border text-muted-foreground hover:text-foreground hover:bg-secondary/80'
-        }`}
-      >
-        {projectName ? <FolderCheck className="w-3.5 h-3.5" /> : <FolderOpen className="w-3.5 h-3.5" />}
-        {projectName ? projectName : 'Open Project'}
-      </button>
+      {/* League toggle + Open project top-right */}
+      <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
+        <LeagueToggle
+          projectType={projectType}
+          setProjectType={setProjectType}
+          canChangeLeague={canChangeLeague}
+          projectName={projectName}
+        />
+        <button
+          onClick={openProject}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all border ${
+            projectName
+              ? 'bg-green-500/10 border-green-500/30 text-green-400 hover:bg-green-500/20'
+              : 'bg-secondary border-border text-muted-foreground hover:text-foreground hover:bg-secondary/80'
+          }`}
+        >
+          {projectName ? <FolderCheck className="w-3.5 h-3.5" /> : <FolderOpen className="w-3.5 h-3.5" />}
+          {projectName ? projectName : 'Open Project'}
+        </button>
+      </div>
       {/* Background decoration */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/5 rounded-full blur-3xl" />
@@ -139,7 +190,7 @@ export default function Welcome() {
           <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
             <Zap className="w-4 h-4 text-primary" />
           </div>
-          <span className="font-semibold text-primary uppercase tracking-widest text-base">AUTONOMOUS BUILDER </span>
+          <span className="font-semibold text-primary uppercase tracking-widest text-base">AUTONOMOUS BUILDER </span>
         </div>
         <h1 className="text-4xl md:text-5xl font-bold text-foreground tracking-tight mb-3">BrainSTEM Pilot
 

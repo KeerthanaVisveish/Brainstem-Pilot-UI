@@ -2,7 +2,25 @@
 // Stores a directory handle in memory (persists for the browser session)
 
 import { getDefaultFieldId } from './fieldConfig.js';
-import { formatWaypointForExport, normalizeSavedPaths } from './pathWaypoints.js';
+
+const DEFAULT_FRC_ROBOT = {
+  width: 0.76,
+  length: 0.76,
+  maxVel: 3.0,
+  maxAccel: 2.5,
+  unit: 'm',
+  subsystems: [],
+};
+
+const DEFAULT_FTC_ROBOT = {
+  width: 18,
+  length: 18,
+  maxVel: 60,
+  maxAccel: 40,
+  unit: 'in',
+  subsystems: [],
+};
+import { formatWaypointForExport, normalizeSavedPaths, getPathExportMetadata } from './pathWaypoints.js';
 
 let _dirHandle = null;
 
@@ -23,7 +41,7 @@ async function deleteFileIfExists(dir, filename) {
   try { await dir.removeEntry(filename); } catch (_) { /* ignore */ }
 }
 
-export async function savePathToProject(pathObj, previousName) {
+export async function savePathToProject(pathObj, previousName, projectType = 'frc') {
   if (!_dirHandle) return;
   // Guard: name must exist and be non-empty, otherwise skip to avoid creating path.path.json
   if (!pathObj.name || pathObj.name.trim() === '') return;
@@ -37,8 +55,11 @@ export async function savePathToProject(pathObj, previousName) {
   // Build a clean export object with waypointParams summarized at the bottom for readability
   const fmt4 = v => parseFloat((v ?? 0).toFixed(4));
   const wps = pathObj.waypoints ?? [];
+  const appSettings = await loadAppSettingsFromProject();
+  const league = appSettings?.projectType ?? projectType;
   const exportObj = {
     ...pathObj,
+    ...getPathExportMetadata(league),
     waypoints: wps.map((w, i) => formatWaypointForExport(w, i, wps.length, fmt4)),
     // Legacy index map for external tools; inline wp.params is the source of truth
     waypointParams: Object.fromEntries(
@@ -242,17 +263,12 @@ export async function loadAppSettingsFromProject() {
   }
 }
 
-export async function initializeProjectFolder() {
+export async function initializeProjectFolder(projectType = 'frc') {
   if (!_dirHandle) return;
+  const league = projectType === 'ftc' ? 'ftc' : 'frc';
   const settingsExists = await loadSettingsFromProject();
   if (!settingsExists) {
-    await saveSettingsToProject({
-      width: 0.76,
-      length: 0.76,
-      maxVel: 3.0,
-      maxAccel: 2.5,
-      subsystems: []
-    });
+    await saveSettingsToProject(league === 'ftc' ? DEFAULT_FTC_ROBOT : DEFAULT_FRC_ROBOT);
   }
   const configExists = await loadSubsystemConfigFromProject();
   if (!configExists) {
@@ -260,6 +276,9 @@ export async function initializeProjectFolder() {
   }
   const appSettingsExists = await loadAppSettingsFromProject();
   if (!appSettingsExists) {
-    await saveAppSettingsToProject({ selectedFieldId: getDefaultFieldId() });
+    await saveAppSettingsToProject({
+      projectType: league,
+      selectedFieldId: getDefaultFieldId(league),
+    });
   }
 }

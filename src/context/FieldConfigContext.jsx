@@ -3,19 +3,29 @@ import {
   getFieldsCatalog,
   resolveField,
   setActiveField,
-  getActiveField,
   getFieldDimensions,
   getFieldImageUrl,
   getDefaultFieldId,
+  getFieldBounds,
 } from '../lib/fieldConfig';
 import { readEntity, writeEntity } from '../lib/dataService';
+import { useLeague } from './LeagueContext';
 
 const FieldConfigContext = createContext(null);
 
 export function FieldConfigProvider({ children }) {
-  const [selectedFieldId, setSelectedFieldIdState] = useState(getDefaultFieldId());
+  const { projectType, loadedFromProject } = useLeague();
+  const [selectedFieldId, setSelectedFieldIdState] = useState(() => getDefaultFieldId('frc'));
   const [loaded, setLoaded] = useState(false);
   const userChangedRef = useRef(false);
+
+  useEffect(() => {
+    if (!loadedFromProject) return;
+    const resolved = resolveField(selectedFieldId, projectType);
+    if (!resolved || resolved.id === selectedFieldId) return;
+    setSelectedFieldIdState(resolved.id);
+    setActiveField(resolved.id, projectType);
+  }, [projectType, loadedFromProject, selectedFieldId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -26,49 +36,60 @@ export function FieldConfigProvider({ children }) {
       }
       let settings = data;
       if (Array.isArray(data) && data.length > 0) settings = data[0];
-      const id = settings?.selectedFieldId ?? getDefaultFieldId();
-      setSelectedFieldIdState(id);
-      setActiveField(id);
+      const id = settings?.selectedFieldId ?? getDefaultFieldId(projectType);
+      const resolved = resolveField(id, projectType);
+      setSelectedFieldIdState(resolved?.id ?? getDefaultFieldId(projectType));
+      setActiveField(resolved?.id, projectType);
       setLoaded(true);
     }).catch(() => {
       if (!cancelled && !userChangedRef.current) {
-        setActiveField(getDefaultFieldId());
+        const fallback = getDefaultFieldId(projectType);
+        setActiveField(fallback, projectType);
       }
       if (!cancelled) setLoaded(true);
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [projectType]);
 
-  const activeField = useMemo(() => resolveField(selectedFieldId), [selectedFieldId]);
+  const activeField = useMemo(
+    () => resolveField(selectedFieldId, projectType),
+    [selectedFieldId, projectType],
+  );
 
   useEffect(() => {
-    if (loaded) setActiveField(selectedFieldId);
-  }, [selectedFieldId, loaded]);
+    if (loaded) setActiveField(selectedFieldId, projectType);
+  }, [selectedFieldId, projectType, loaded]);
 
   const setSelectedFieldId = useCallback(async (fieldId) => {
     userChangedRef.current = true;
-    setSelectedFieldIdState(fieldId);
-    setActiveField(fieldId);
+    const resolved = resolveField(fieldId, projectType);
+    if (!resolved) return;
+    setSelectedFieldIdState(resolved.id);
+    setActiveField(resolved.id, projectType);
     try {
-      await writeEntity('AppSettings', { selectedFieldId: fieldId });
+      await writeEntity('AppSettings', { selectedFieldId: resolved.id, projectType });
     } catch (err) {
       console.error('Failed to save app settings:', err);
     }
-  }, []);
+  }, [projectType]);
 
   const value = useMemo(() => {
     const dims = getFieldDimensions(activeField);
+    const bounds = getFieldBounds(activeField);
     return {
-      fields: getFieldsCatalog(),
+      fields: getFieldsCatalog(projectType),
       activeField,
       selectedFieldId,
       setSelectedFieldId,
       widthM: dims.widthM,
       heightM: dims.heightM,
+      bounds,
+      unit: dims.unit,
       imageUrl: getFieldImageUrl(activeField),
       loaded,
+      projectType,
     };
-  }, [activeField, selectedFieldId, setSelectedFieldId, loaded]);
+  }, [activeField, selectedFieldId, setSelectedFieldId, loaded, projectType]);
 
   return (
     <FieldConfigContext.Provider value={value}>

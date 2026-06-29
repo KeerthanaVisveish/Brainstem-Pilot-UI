@@ -6,6 +6,7 @@ import AppSettingsTab from '../components/settings/AppSettingsTab';
 import { motion } from 'framer-motion';
 import { readEntity, writeEntity } from '../lib/dataService';
 import { saveSettingsToProject } from '../lib/projectFolder';
+import { useLeague } from '../context/LeagueContext';
 
 function clamp(v, min, max) { return Math.min(max, Math.max(min, v)); }
 
@@ -14,13 +15,23 @@ const IN_TO_M = 1 / M_TO_IN;
 const MS_TO_FTS = 3.28084;
 const FTS_TO_MS = 1 / MS_TO_FTS;
 
-function toDisplay(val, unit) {
+function toDisplay(val, unit, storageUnit = 'm') {
+  if (storageUnit === 'in') {
+    if (unit === 'in' || unit === 'in/s' || unit === 'in/s²') {
+      return parseFloat(Number(val ?? 0).toFixed(unit === 'in' ? 3 : 2));
+    }
+  }
+  if (storageUnit === unit) return parseFloat(Number(val ?? 0).toFixed(unit === 'in' ? 3 : 4));
   if (unit === 'in') return parseFloat((val * M_TO_IN).toFixed(3));
   if (unit === 'ft/s') return parseFloat((val * MS_TO_FTS).toFixed(3));
-  return parseFloat(val.toFixed(4));
+  return parseFloat(Number(val ?? 0).toFixed(4));
 }
 
-function fromDisplay(val, unit) {
+function fromDisplay(val, unit, storageUnit = 'm') {
+  if (storageUnit === 'in') {
+    if (unit === 'in' || unit === 'in/s' || unit === 'in/s²') return val;
+  }
+  if (storageUnit === unit) return val;
   if (unit === 'in') return val * IN_TO_M;
   if (unit === 'ft/s') return val * FTS_TO_MS;
   return val;
@@ -28,10 +39,11 @@ function fromDisplay(val, unit) {
 
 export default function Settings() {
   const navigate = useNavigate();
+  const { isFtc } = useLeague();
   const [tab, setTab] = useState('robot');
   const [settings, setSettings] = useState(null);
-  const [dimUnit, setDimUnit] = useState('m');    // 'm' | 'in'
-  const [velUnit, setVelUnit] = useState('m/s');  // 'm/s' | 'ft/s'
+  const [dimUnit, setDimUnit] = useState(isFtc ? 'in' : 'm');
+  const [velUnit, setVelUnit] = useState(isFtc ? 'in/s' : 'm/s');
   const saveTimer = useRef(null);
 
   useEffect(() => {
@@ -41,7 +53,13 @@ export default function Settings() {
       } else if (data && !Array.isArray(data)) {
         setSettings(data);
       } else {
-        setSettings({ width: 0.76, length: 0.76, maxVel: 3.0, maxAccel: 2.5, subsystems: [] });
+        setSettings(isFtc
+          ? { width: 18, length: 18, maxVel: 60, maxAccel: 40, unit: 'in', subsystems: [] }
+          : { width: 0.76, length: 0.76, maxVel: 3.0, maxAccel: 2.5, unit: 'm', subsystems: [] });
+      }
+      if (data?.unit === 'in' || (Array.isArray(data) && data[0]?.unit === 'in')) {
+        setDimUnit('in');
+        setVelUnit('in/s');
       }
     });
   }, []);
@@ -128,7 +146,7 @@ export default function Settings() {
             <Settings2 className="w-5 h-5 text-primary" />
             <h1 className="text-xl font-bold text-foreground">Settings</h1>
           </div>
-          {tab === 'robot' && (
+          {tab === 'robot' && !isFtc && (
             <div className="flex items-center gap-2">
               <UnitToggle options={['m', 'in']} value={dimUnit} onChange={switchDimUnit} />
               <UnitToggle options={['m/s', 'ft/s']} value={velUnit} onChange={switchVelUnit} />
@@ -164,7 +182,10 @@ export default function Settings() {
           {(() => {
             const dimUnitLabel = dimUnit;
             const velUnitLabel = velUnit;
-            const accelUnitLabel = velUnit === 'ft/s' ? 'ft/s²' : 'm/s²';
+            const accelUnitLabel = velUnit === 'in/s' ? 'in/s²' : velUnit === 'ft/s' ? 'ft/s²' : 'm/s²';
+            const storageUnit = settings.unit ?? (isFtc ? 'in' : 'm');
+            const dimMax = dimUnit === 'in' ? 48 : 1.2;
+            const dimMin = dimUnit === 'in' ? 4 : 0.1;
             return (
               <>
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-card border border-border rounded-xl p-5">
@@ -172,15 +193,15 @@ export default function Settings() {
             <div className="grid grid-cols-2 gap-4">
               <Field
                 label="Width" unit={dimUnitLabel}
-                value={toDisplay(settings.width, dimUnit)}
-                onChange={v => update('width', clamp(fromDisplay(v, dimUnit), 0.1, 1.2))}
-                step={dimUnit === 'in' ? 0.1 : 0.01} min={dimUnit === 'in' ? 4 : 0.1} max={dimUnit === 'in' ? 48 : 1.2}
+                value={toDisplay(settings.width, dimUnit, storageUnit)}
+                onChange={v => update('width', clamp(fromDisplay(v, dimUnit, storageUnit), dimMin, dimMax))}
+                step={dimUnit === 'in' ? 0.1 : 0.01} min={dimMin} max={dimMax}
               />
               <Field
                 label="Length" unit={dimUnitLabel}
-                value={toDisplay(settings.length, dimUnit)}
-                onChange={v => update('length', clamp(fromDisplay(v, dimUnit), 0.1, 1.2))}
-                step={dimUnit === 'in' ? 0.1 : 0.01} min={dimUnit === 'in' ? 4 : 0.1} max={dimUnit === 'in' ? 48 : 1.2}
+                value={toDisplay(settings.length, dimUnit, storageUnit)}
+                onChange={v => update('length', clamp(fromDisplay(v, dimUnit, storageUnit), dimMin, dimMax))}
+                step={dimUnit === 'in' ? 0.1 : 0.01} min={dimMin} max={dimMax}
               />
             </div>
           </motion.div>
@@ -193,14 +214,14 @@ export default function Settings() {
               <div className="grid grid-cols-1 gap-4">
                 <Field
                   label="Max Velocity" unit={velUnitLabel}
-                  value={toDisplay(settings.maxVel, velUnit)}
-                  onChange={v => update('maxVel', clamp(fromDisplay(v, velUnit), fromDisplay(0.1, velUnit), 20))}
+                  value={toDisplay(settings.maxVel, velUnit, storageUnit)}
+                  onChange={v => update('maxVel', clamp(fromDisplay(v, velUnit, storageUnit), fromDisplay(0.1, velUnit, storageUnit), storageUnit === 'in' ? 150 : 20))}
                   step={0.1} min={0.1}
                 />
                 <Field
                   label="Max Acceleration" unit={accelUnitLabel}
-                  value={toDisplay(settings.maxAccel, velUnit)}
-                  onChange={v => update('maxAccel', clamp(fromDisplay(v, velUnit), fromDisplay(0.1, velUnit), 20))}
+                  value={toDisplay(settings.maxAccel, velUnit, storageUnit)}
+                  onChange={v => update('maxAccel', clamp(fromDisplay(v, velUnit, storageUnit), fromDisplay(0.1, velUnit, storageUnit), storageUnit === 'in' ? 150 : 20))}
                   step={0.1} min={0.1}
                 />
               </div>
@@ -236,10 +257,10 @@ export default function Settings() {
                       </button>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
-                      <Field label="Width" unit={dimUnitLabel} value={toDisplay(sub.width, dimUnit)} onChange={v => updateSubsystem(i, 'width', clamp(fromDisplay(v, dimUnit), 0.01, 1))} step={dimUnit === 'in' ? 0.1 : 0.01} />
-                      <Field label="Length" unit={dimUnitLabel} value={toDisplay(sub.length, dimUnit)} onChange={v => updateSubsystem(i, 'length', clamp(fromDisplay(v, dimUnit), 0.01, 1))} step={dimUnit === 'in' ? 0.1 : 0.01} />
-                      <Field label="Offset X" unit={dimUnitLabel} value={toDisplay(sub.offsetX, dimUnit)} onChange={v => updateSubsystem(i, 'offsetX', fromDisplay(v, dimUnit))} step={dimUnit === 'in' ? 0.1 : 0.01} />
-                      <Field label="Offset Y" unit={dimUnitLabel} value={toDisplay(sub.offsetY, dimUnit)} onChange={v => updateSubsystem(i, 'offsetY', fromDisplay(v, dimUnit))} step={dimUnit === 'in' ? 0.1 : 0.01} />
+                      <Field label="Width" unit={dimUnitLabel} value={toDisplay(sub.width, dimUnit, storageUnit)} onChange={v => updateSubsystem(i, 'width', clamp(fromDisplay(v, dimUnit, storageUnit), 0.01, dimMax))} step={dimUnit === 'in' ? 0.1 : 0.01} />
+                      <Field label="Length" unit={dimUnitLabel} value={toDisplay(sub.length, dimUnit, storageUnit)} onChange={v => updateSubsystem(i, 'length', clamp(fromDisplay(v, dimUnit, storageUnit), 0.01, dimMax))} step={dimUnit === 'in' ? 0.1 : 0.01} />
+                      <Field label="Offset X" unit={dimUnitLabel} value={toDisplay(sub.offsetX, dimUnit, storageUnit)} onChange={v => updateSubsystem(i, 'offsetX', fromDisplay(v, dimUnit, storageUnit))} step={dimUnit === 'in' ? 0.1 : 0.01} />
+                      <Field label="Offset Y" unit={dimUnitLabel} value={toDisplay(sub.offsetY, dimUnit, storageUnit)} onChange={v => updateSubsystem(i, 'offsetY', fromDisplay(v, dimUnit, storageUnit))} step={dimUnit === 'in' ? 0.1 : 0.01} />
                     </div>
                     <label className="flex items-center gap-2 mt-1 cursor-pointer select-none">
                       <input

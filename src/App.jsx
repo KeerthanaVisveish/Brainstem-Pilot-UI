@@ -16,6 +16,7 @@ import SubsystemConfigPage from './pages/SubsystemConfigPage';
 import AutoSimulator from './pages/AutoSimulator';
 import Documentation from './pages/Documentation';
 import { FieldConfigProvider } from './context/FieldConfigContext';
+import { LeagueProvider } from './context/LeagueContext';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -42,8 +43,9 @@ const AuthenticatedApp = () => {
 
   // Render the main app
   return (
-    <FieldConfigProvider>
-      <Routes>
+    <LeagueProvider>
+      <FieldConfigProvider>
+        <Routes>
       <Route path="/" element={<Welcome />} />
       <Route path="/autos" element={<AutoList />} />
       <Route path="/auto-builder/:id" element={<AutoBuilder />} />
@@ -56,8 +58,9 @@ const AuthenticatedApp = () => {
       <Route path="/auto-simulator/:id" element={<AutoSimulator />} />
       <Route path="/docs" element={<Documentation />} />
       <Route path="*" element={<PageNotFound />} />
-    </Routes>
-    </FieldConfigProvider>
+        </Routes>
+      </FieldConfigProvider>
+    </LeagueProvider>
   );
 };
 

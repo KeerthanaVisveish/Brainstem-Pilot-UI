@@ -22,6 +22,23 @@ import { getDefaultFieldId } from './fieldConfig';
 import { normalizeSavedPaths } from './pathWaypoints';
 
 const APP_SETTINGS_STORAGE_KEY = 'brainstem_app_settings';
+const LEAGUE_STORAGE_KEY = 'brainstem_league_preference';
+
+function getStoredLeaguePreference() {
+  try {
+    const raw = localStorage.getItem(LEAGUE_STORAGE_KEY);
+    if (raw === 'ftc' || raw === 'frc') return raw;
+  } catch { /* ignore */ }
+  return 'frc';
+}
+
+function defaultAppSettings() {
+  const league = getStoredLeaguePreference();
+  return {
+    projectType: league,
+    selectedFieldId: getDefaultFieldId(league),
+  };
+}
 
 const ENTITY_FILES = {
   RobotSettings: 'robot-settings.json',
@@ -171,7 +188,7 @@ export async function readEntity(entityType) {
     }
     if (entityType === 'AppSettings') {
       const s = await loadAppSettingsFromProject();
-      return s ?? { selectedFieldId: getDefaultFieldId() };
+      return s ?? defaultAppSettings();
     }
   }
 
@@ -181,7 +198,7 @@ export async function readEntity(entityType) {
         const raw = localStorage.getItem(APP_SETTINGS_STORAGE_KEY);
         if (raw) return JSON.parse(raw);
       } catch { /* ignore */ }
-      return { selectedFieldId: getDefaultFieldId() };
+      return defaultAppSettings();
     }
     return [];
   }
